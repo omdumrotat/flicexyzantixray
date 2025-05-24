@@ -1,0 +1,38 @@
+name: flicexyzantixray
+version: '1.7'
+main: com.omdmrotat.flicexyzantixray.YLevelHiderPlugin
+api-version: '1.20'
+load: STARTUP
+depend: [packetevents]
+authors: [omdmrotat]
+description: Hides blocks above Y=16 based on player's Y level.
+# Optional: Add loadbefore if another plugin might interact with PacketEvents early
+# loadbefore: []
+# Optional: Add softdepend if you want to use features from another plugin if it's present
+# softdepend: []
+
+commands:
+# You could add a command for debugging or manual refresh if needed
+# ylevelhider:
+#   description: Main command for YLevelHider.
+#   usage: /ylevelhider <args>
+#   permission: ylevelhider.admin
+  ylevelhiderdebug:
+    description: Toggles debug mode for YLevelHider plugin.
+    usage: /ylevelhiderdebug
+    permission: ylevelhider.debug
+  ylevelhiderreload:
+    description: Reloads the YLevelHider configuration.
+    usage: /ylevelhiderreload
+    permission: ylevelhider.admin
+  ylevelhiderworld:
+    description: Manages the world whitelist for YLevelHider.
+    usage: /ylevelhiderworld <list|add|remove> [worldName]
+    permission: ylevelhider.admin
+permissions:
+# ylevelhider.admin:
+#   description: Allows access to YLevelHider admin commands.
+#   default: op
+  ylevelhider.debug:
+    description: Allows toggling of YLevelHider debug mode.
+    default: op

@@ -1,0 +1,27 @@
+# YLevelHider Configuration
+
+# ==========================================================================================
+# IMPORTANT DISCLAIMER: World Whitelist
+# ==========================================================================================
+# It is STRONGLY RECOMMENDED NOT to add Nether ('your_world_nether') or End ('your_world_the_end')
+# dimensions to the 'whitelisted-worlds' list below.
+# Modifying chunk data in these dimensions, especially around bedrock layers, portals,
+# or unique generation features, can lead to severe visual glitches, client crashes,
+# or unexpected gameplay behavior.
+#
+# This plugin is primarily designed and tested for Overworld-like dimensions.
+# If you choose to enable it in Nether/End worlds, do so at your own risk and test thoroughly.
+# ==========================================================================================
+
+# List of worlds where the Y-level hiding effect will be active.
+# Add the exact names of your worlds here as they appear in your server's root folder.
+# For example:
+# whitelisted-worlds:
+#   - "world"
+#   - "my_custom_mining_world"
+#   - "resource_dimension_alpha"
+
+whitelisted-worlds:
+  - "world" # Default Overworld name, adjust if yours is different
+# - "world_nether" # NOT RECOMMENDED
+# - "world_the_end"  # NOT RECOMMENDED
