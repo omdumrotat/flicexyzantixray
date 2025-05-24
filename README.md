@@ -5,6 +5,6 @@ Hides blocks from Y ≤ 16 if the player is ≥ 31.0; very useful against freeca
 - ylevelhider.admin: /ylevelhiderworld, /ylevelhiderreload
 - ylevelhider.debug: /ylevelhiderdebug
 # known issues:
-- ping spike if you're constantly moving from y 30 and 31
+- ping spike if you're constantly moving from y 30 to 31 and vise versa
 # compiling
 clone the repo, and then type ./gradlew build or gradlew.bat build
