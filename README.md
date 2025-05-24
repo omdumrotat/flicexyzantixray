@@ -1,6 +1,6 @@
 <a href> <img src="https://raw.githubusercontent.com/omdumrotat/flicexyzantixray/master/minecraft_title.png"> </a>
 # flicexyzantixray(free)
-Hides blocks from Y ≤ 16 if the player is ≥ 31.0; very useful against freecam hacks (for real xray prevention you should check raytraceantixray and use it alongside this)
+Hides blocks from Y ≤ 16 if the player is ≥ 31.0; very useful against freecam hacks (for real xray prevention you should check out raytraceantixray and use it alongside this)
 # permission: 
 ylevelhider.admin: /ylevelhiderworld, ylevelhiderreload
 ylevelhider.debug: /ylevelhiderdebug
