@@ -8,4 +8,4 @@ Hides blocks from Y ≤ 16 if the player is ≥ 31.0; very useful against freeca
 # known issues:
 - ping spike if you're constantly moving from y 30 to 31 and vise versa
 # compiling
-clone the repo, and then type ./gradlew build or gradlew.bat build
+clone the repo, import to IDLE or your IDE of your choice and build with Maven
