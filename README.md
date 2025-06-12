@@ -7,6 +7,6 @@
 - ylevelhider.admin: /ylevelhiderworld, /ylevelhiderreload
 - ylevelhider.debug: /ylevelhiderdebug
 # known issues:
-- ping spike if you're constantly moving from y 30 to 31 and vise versa
+- there may be incompatibilities with Sodium the client-side mod however its extremely rare to get this to occur
 # compiling
 clone the repo, import to IDLE or your IDE of your choice and build with Maven
