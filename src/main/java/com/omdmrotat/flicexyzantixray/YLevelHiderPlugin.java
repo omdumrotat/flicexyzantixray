@@ -17,7 +17,6 @@ import com.github.retrooper.packetevents.wrapper.PacketWrapper; // Generic wrapp
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange; // Import for BlockChange
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange; // Import for MultiBlockChange
-// Corrected import for block position, using Vector3i as indicated by error
 import com.github.retrooper.packetevents.util.Vector3i; // Import for Vector3i
 
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
@@ -37,6 +36,8 @@ import org.bukkit.event.EventHandler;
 // import org.bukkit.event.Listener; // Already in main class
 import org.bukkit.event.player.PlayerChangedWorldEvent; // Import for world change event
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -57,9 +58,10 @@ import java.util.stream.Collectors;
 public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Listener, CommandExecutor, TabCompleter {
 
     public final Map<UUID, Boolean> playerHiddenState = new ConcurrentHashMap<>();
+    private final Set<UUID> internallyTeleporting = ConcurrentHashMap.newKeySet();
     private static YLevelHiderPlugin instance;
     private WrappedBlockState airState;
-    private int airStateGlobalId = 0; // Cache global ID for air
+    private int airStateGlobalId = 0;
     private boolean debugMode = false;
     private Set<String> whitelistedWorlds = new HashSet<>();
 
@@ -73,7 +75,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
     }
 
-    private void infoLog(String message) { // For non-debug, important logs
+    private void infoLog(String message) {
         getLogger().info("[YLevelHider] " + message);
     }
 
@@ -135,7 +137,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             if (airState == null) {
                 throw new IllegalStateException("WrappedBlockState.getByString(\"minecraft:air\") returned null.");
             }
-            airStateGlobalId = airState.getGlobalId(); // Cache the global ID
+            airStateGlobalId = airState.getGlobalId();
             debugLog("AIR block state initialized successfully. Global ID: " + airStateGlobalId);
         } catch (Exception e) {
             getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR: " + e.getMessage());
@@ -236,7 +238,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                         handlePlayerInitialState(p, true);
                     } else {
                         if (playerHiddenState.remove(p.getUniqueId()) != null) {
-                            refreshChunksAroundPlayer(p);
+                            refreshFullView(p);
                         }
                     }
                 }
@@ -290,7 +292,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                         for (Player p : Bukkit.getOnlinePlayers()) {
                             if (p.getWorld().getName().equals(worldName)) {
                                 playerHiddenState.remove(p.getUniqueId());
-                                refreshChunksAroundPlayer(p);
+                                refreshFullView(p);
                                 debugLog("Reset hidden state and refreshed chunks for " + p.getName() + " in now non-whitelisted world " + worldName);
                             }
                         }
@@ -327,8 +329,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             debugLog("handlePlayerInitialState for " + player.getName() + " skipped, world " + player.getWorld().getName() + " not whitelisted.");
             boolean wasPresent = playerHiddenState.remove(player.getUniqueId()) != null;
             if (wasPresent && immediateRefresh) {
-                debugLog("Player " + player.getName() + " moved to non-whitelisted world, had state, refreshing immediately.");
-                refreshChunksAroundPlayer(player);
+                debugLog("Player " + player.getName() + " moved to non-whitelisted world, had state, refreshing immediately with full view.");
+                refreshFullView(player);
             }
             return;
         }
@@ -339,63 +341,62 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         debugLog("Player " + player.getName() + " at Y=" + String.format("%.2f", currentY) + ". Initial hidden state: " + initialStateIsHidden);
 
         if (initialStateIsHidden) {
+            // When activating hide state (either initially or through world change/reload),
+            // we rely on the packet listener for new chunks.
+            // For already visible chunks, a full refresh is needed if immediateRefresh is true.
             if (immediateRefresh) {
-                debugLog("Initial state is hidden for " + player.getName() + ". Refreshing chunks immediately.");
-                refreshChunksAroundPlayer(player);
+                debugLog("Initial state is hidden for " + player.getName() + ". Refreshing full view immediately.");
+                refreshFullView(player);
             } else {
-                debugLog("Initial state is hidden for " + player.getName() + ". Scheduling chunk refresh (1 tick delay).");
-                Bukkit.getScheduler().runTaskLater(this, () -> {
-                    if (player.isOnline() && isWorldWhitelisted(player.getWorld().getName())) {
-                        debugLog("Executing delayed chunk refresh for " + player.getName() + " (initial state).");
-                        refreshChunksAroundPlayer(player);
-                    } else {
-                        debugLog("Player " + player.getName() + " offline or no longer in whitelisted world before delayed initial refresh.");
-                    }
-                }, 1L);
+                debugLog("Initial state is hidden for " + player.getName() + ". Relying on packet listener for new/refreshed chunks.");
+                // No delayed refresh here to avoid potential lag on join/enable if many players are affected.
+                // The view will update as chunks are naturally sent or player moves.
             }
         } else {
+            // If the new state is NOT hidden, refresh to ensure everything is visible.
             if (immediateRefresh) {
-                debugLog("Player " + player.getName() + " new state is NOT hidden. Refreshing chunks immediately to ensure normal view.");
-                refreshChunksAroundPlayer(player);
+                debugLog("Player " + player.getName() + " new state is NOT hidden. Refreshing full view immediately to ensure normal view.");
+                refreshFullView(player);
             }
         }
     }
 
-    public void refreshChunksAroundPlayer(Player player) {
-        debugLog("refreshChunksAroundPlayer called for " + player.getName() + " in world " + player.getWorld().getName());
-        if (!player.isOnline()) {
-            debugLog("Player " + player.getName() + " is offline. Skipping refresh.");
-            return;
-        }
-        if (!Bukkit.isPrimaryThread()) {
-            debugLog("Not on main thread. Scheduling performRefresh for " + player.getName());
-            Bukkit.getScheduler().runTask(this, () -> performRefresh(player));
-        } else {
-            performRefresh(player);
-        }
+    public void refreshFullView(Player player) {
+        debugLog("refreshFullView called for " + player.getName() + " in world " + player.getWorld().getName());
+        performRefresh(player, Bukkit.getServer().getViewDistance());
     }
 
-    private void performRefresh(Player player) {
-        debugLog("performRefresh executing for " + player.getName());
+
+    private void performRefresh(Player player, int radiusChunks) {
+        debugLog("performRefresh executing for " + player.getName() + " with radius " + radiusChunks);
         if (!player.isOnline()) {
             debugLog("Player " + player.getName() + " is offline in performRefresh. Skipping.");
             return;
         }
+        if (!isWorldWhitelisted(player.getWorld().getName())) {
+            debugLog("performRefresh skipped for " + player.getName() + ", world " + player.getWorld().getName() + " not whitelisted.");
+            return;
+        }
+
+        if (!Bukkit.isPrimaryThread()) {
+            final int finalRadius = radiusChunks;
+            debugLog("Not on main thread. Scheduling performRefresh for " + player.getName() + " with radius " + finalRadius);
+            Bukkit.getScheduler().runTask(this, () -> performRefresh(player, finalRadius));
+            return;
+        }
+
         World world = player.getWorld();
         Location loc = player.getLocation();
-        int viewDistanceChunks = Bukkit.getServer().getViewDistance();
         int playerChunkX = loc.getBlockX() >> 4;
         int playerChunkZ = loc.getBlockZ() >> 4;
         int refreshedCount = 0;
-        for (int cx = playerChunkX - viewDistanceChunks; cx <= playerChunkX + viewDistanceChunks; cx++) {
-            for (int cz = playerChunkZ - viewDistanceChunks; cz <= playerChunkZ + viewDistanceChunks; cz++) {
-                if (world.isChunkLoaded(cx, cz)) {
-                    world.refreshChunk(cx, cz);
-                    refreshedCount++;
-                }
+        for (int cx = playerChunkX - radiusChunks; cx <= playerChunkX + radiusChunks; cx++) {
+            for (int cz = playerChunkZ - radiusChunks; cz <= playerChunkZ + radiusChunks; cz++) {
+                world.refreshChunk(cx, cz);
+                refreshedCount++;
             }
         }
-        debugLog("Refreshed " + refreshedCount + " chunks around " + player.getName());
+        debugLog("Refreshed " + refreshedCount + " chunks (radius " + radiusChunks + ") around " + player.getName());
     }
 
     @EventHandler
@@ -425,19 +426,79 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         infoLog("PlayerChangedWorldEvent for " + player.getName() + " from " + fromWorld.getName() + " to " + toWorld.getName());
 
         if (isWorldWhitelisted(toWorld.getName())) {
-            debugLog("Player " + player.getName() + " entered whitelisted world " + toWorld.getName() + ". Handling initial state with immediate refresh.");
+            debugLog("Player " + player.getName() + " entered whitelisted world " + toWorld.getName() + ". Handling initial state with immediate (full) refresh.");
             handlePlayerInitialState(player, true);
         } else {
             boolean wasHidden = playerHiddenState.remove(player.getUniqueId()) != null;
             if (wasHidden) {
-                debugLog("Player " + player.getName() + " entered non-whitelisted world " + toWorld.getName() + ". State cleared, refreshing chunks immediately.");
-                refreshChunksAroundPlayer(player);
+                debugLog("Player " + player.getName() + " entered non-whitelisted world " + toWorld.getName() + ". State cleared, refreshing full view immediately.");
+                refreshFullView(player);
             } else {
                 debugLog("Player " + player.getName() + " entered non-whitelisted world " + toWorld.getName() + ". No prior hidden state to clear or already normal.");
             }
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        // Fix for recursion: If this teleport was initiated by our own plugin, ignore it.
+        if (internallyTeleporting.contains(event.getPlayer().getUniqueId())) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        Location to = event.getTo();
+
+        if (to == null) return;
+
+        boolean toWorldIsWhitelisted = isWorldWhitelisted(to.getWorld().getName());
+        boolean fromWorldIsWhitelisted = isWorldWhitelisted(event.getFrom().getWorld().getName());
+
+        if (!toWorldIsWhitelisted) {
+            // Handle teleporting OUT of a whitelisted world.
+            if (fromWorldIsWhitelisted && playerHiddenState.remove(player.getUniqueId()) != null) {
+                // Schedule the refresh for after the teleport is complete.
+                Bukkit.getScheduler().runTask(this, () -> {
+                    if (player.isOnline()) {
+                        debugLog("Player " + player.getName() + " teleported out of a whitelisted world. Refreshing view.");
+                        refreshFullView(player);
+                    }
+                });
+            }
+            return;
+        }
+
+        UUID playerUUID = player.getUniqueId();
+        double destY = to.getY();
+
+        boolean oldStateIsHidden = playerHiddenState.getOrDefault(playerUUID, destY >= 31.0);
+        boolean newStateIsHidden = destY >= 31.0;
+
+        if (oldStateIsHidden == newStateIsHidden) {
+            return; // No state change, so no special handling is needed.
+        }
+
+        // This is the critical race condition: teleporting from a HIDING state to a NOT HIDING state where chunks may be unloaded.
+        if (!newStateIsHidden) { // Transitioning TO a non-hiding state (Hiding -> Visible)
+            debugLog("Intercepting teleport for " + player.getName() + " from HIDING to NOT HIDING state. Delaying by 1 tick to prevent void bug.");
+            playerHiddenState.put(playerUUID, false); // Update state immediately
+            event.setCancelled(true); // Cancel original event
+            // Schedule a new teleport for the next tick. By then, the state is correct, and packets will be generated properly.
+            Bukkit.getScheduler().runTask(this, () -> {
+                if (!player.isOnline()) return;
+                internallyTeleporting.add(playerUUID);
+                try {
+                    player.teleport(to);
+                } finally {
+                    internallyTeleporting.remove(playerUUID);
+                }
+            });
+        } else { // Transitioning TO a hiding state (Visible -> Hiding)
+            debugLog("Player " + player.getName() + " teleporting to a HIDING state. Updating state immediately.");
+            playerHiddenState.put(playerUUID, true);
+            // Let the teleport proceed. The packet listener will now correctly hide the new chunks being sent.
+        }
+    }
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
@@ -448,8 +509,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             if (playerHiddenState.containsKey(player.getUniqueId())) {
                 boolean wasHidden = playerHiddenState.remove(player.getUniqueId()) != null;
                 if (wasHidden) {
-                    debugLog(player.getName() + " moved within/to non-whitelisted world " + player.getWorld().getName() + ". Resetting state and refreshing chunks.");
-                    refreshChunksAroundPlayer(player);
+                    debugLog(player.getName() + " moved within/to non-whitelisted world " + player.getWorld().getName() + ". Resetting state and refreshing full view.");
+                    refreshFullView(player);
                 }
             }
             return;
@@ -490,8 +551,15 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
 
         if (newStateIsHidden != oldStateIsHidden) {
             this.playerHiddenState.put(playerUUID, newStateIsHidden);
-            debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + ". Refreshing chunks at Y=" + String.format("%.2f", currentY));
-            this.refreshChunksAroundPlayer(player);
+            if (!newStateIsHidden && oldStateIsHidden) { // Transitioning from HIDING to NOT HIDING
+                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + " (STOP HIDING). Refreshing full view at Y=" + String.format("%.2f", currentY));
+                this.refreshFullView(player); // Refresh to make everything visible again
+            } else if (newStateIsHidden && !oldStateIsHidden) { // Transitioning from NOT HIDING to HIDING
+                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + " (START HIDING). Relying on packet listener for new/refreshed chunks. Y=" + String.format("%.2f", currentY));
+                // DO NOT call refreshFullView() here to prevent lag spike.
+                // The packet listener will handle new chunks.
+                // Already visible chunks will update if they are resent by the server for other reasons, or as player moves.
+            }
         } else {
             debugLog("State NOT changed for " + player.getName() + ". Current hidden state: " + newStateIsHidden);
         }
@@ -501,7 +569,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         return airState;
     }
 
-    public int getAirStateGlobalId() { // Getter for the cached global ID
+    public int getAirStateGlobalId() {
         return airStateGlobalId;
     }
 
@@ -545,7 +613,9 @@ class ChunkPacketListenerPE implements PacketListener {
             return;
         }
 
-        if (!plugin.isWorldWhitelisted(player.getWorld().getName())) {
+        // Add a null-check for the player's world to prevent errors during world change/login.
+        World playerWorld = player.getWorld();
+        if (playerWorld == null || !plugin.isWorldWhitelisted(playerWorld.getName())) {
             return;
         }
 
@@ -610,6 +680,10 @@ class ChunkPacketListenerPE implements PacketListener {
             }
 
             World world = player.getWorld();
+            if (world == null) {
+                // This is a defensive check; we shouldn't get here if the check in onPacketSend is working, but it's safe to have.
+                return;
+            }
             int worldMinY = world.getMinHeight();
             boolean modified = false;
 
@@ -689,27 +763,19 @@ class ChunkPacketListenerPE implements PacketListener {
             WrapperPlayServerMultiBlockChange wrapper = new WrapperPlayServerMultiBlockChange(event);
             boolean modifiedInPacket = false;
 
-            // Vector3i chunkSectionPosition = wrapper.getChunkPosition(); // This is the chunk section's base position (Y is section index)
-            // if (chunkSectionPosition == null) {
-            //     plugin.getLogger().warning("[YLevelHider][PacketListener] MULTI_BLOCK_CHANGE: ChunkSectionPosition (getChunkPosition) is null. Cannot process.");
-            //     return;
-            // }
-            // int sectionMinWorldY = player.getWorld().getMinHeight() + (chunkSectionPosition.getY() * 16);
-
             WrapperPlayServerMultiBlockChange.EncodedBlock[] records = wrapper.getBlocks();
             if (records == null) {
                 plugin.getLogger().warning("[YLevelHider][PacketListener] MULTI_BLOCK_CHANGE: Records (getBlocks) are null. Cannot process.");
                 return;
             }
 
-            // listenerDebugLog("MULTI_BLOCK_CHANGE: Processing " + records.length + " records for section at " + chunkSectionPosition.toString() + " (worldY_base=" + sectionMinWorldY + ")");
             listenerDebugLog("MULTI_BLOCK_CHANGE: Processing " + records.length + " records.");
 
 
             for (WrapperPlayServerMultiBlockChange.EncodedBlock record : records) {
                 if (record == null) continue;
 
-                int currentWorldY = record.getY(); // EncodedBlock.getY() returns GLOBAL Y
+                int currentWorldY = record.getY();
                 int currentBlockId = record.getBlockId();
 
                 if (currentWorldY <= 16) {
