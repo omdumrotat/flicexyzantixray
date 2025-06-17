@@ -25,3 +25,4 @@ whitelisted-worlds:
   - "world" # Default Overworld name, adjust if yours is different
 # - "world_nether" # NOT RECOMMENDED
 # - "world_the_end"  # NOT RECOMMENDED
+refresh-cooldown-seconds: 3
