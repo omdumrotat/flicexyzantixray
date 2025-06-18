@@ -7,6 +7,6 @@
 - ylevelhider.admin: /ylevelhiderworld, /ylevelhiderreload
 - ylevelhider.debug: /ylevelhiderdebug
 # known issues:
-- some chunks (around 4-8) might not be visible to the player when they're constantly moving up and down while also loading new map sections. This bug can be temporarily resolved by doing basically anything that revolves around refreshing chunks (think of /home, /tp, moving up and down, rejoining...) Any PR that fixes this issue will be greatly appreciated.
+- some chunks (around 4-8) might not be visible to the player when they're constantly moving up and down while also loading new map sections. This bug can be temporarily resolved by doing basically anything that revolves around refreshing chunks (think of /home, /tp, moving up and down, rejoining...) Any PR that fixes this issue will be greatly appreciated. (fixed in `test` branch)
 # compiling
 clone the repo, import to IDLE or your IDE of your choice and build with Maven
