@@ -58,11 +58,13 @@ import java.util.stream.Collectors;
 public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Listener, CommandExecutor, TabCompleter {
 
     public final Map<UUID, Boolean> playerHiddenState = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> refreshCooldowns = new ConcurrentHashMap<>();
     private final Set<UUID> internallyTeleporting = ConcurrentHashMap.newKeySet();
     private static YLevelHiderPlugin instance;
     private WrappedBlockState airState;
     private int airStateGlobalId = 0;
     private boolean debugMode = false;
+    private int refreshCooldownMillis = 3000;
     private Set<String> whitelistedWorlds = new HashSet<>();
 
     public static YLevelHiderPlugin getInstance() {
@@ -92,6 +94,15 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         this.whitelistedWorlds = new HashSet<>(worldsFromConfig);
         debugLog("Loaded whitelisted worlds: " + this.whitelistedWorlds);
+
+        int cooldownSeconds = config.getInt("refresh-cooldown-seconds", 3);
+        // If the path doesn't exist, create it with the default value.
+        if (!config.contains("refresh-cooldown-seconds")) {
+            config.set("refresh-cooldown-seconds", 3);
+            saveConfig();
+        }
+        this.refreshCooldownMillis = cooldownSeconds * 1000;
+        infoLog("Refresh cooldown set to " + cooldownSeconds + " seconds (" + this.refreshCooldownMillis + "ms).");
     }
 
     public boolean isWorldWhitelisted(String worldName) {
@@ -414,6 +425,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         infoLog("onPlayerQuit CALLED for: " + player.getName());
+        refreshCooldowns.remove(player.getUniqueId());
         playerHiddenState.remove(player.getUniqueId());
     }
 
@@ -550,15 +562,27 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
 
 
         if (newStateIsHidden != oldStateIsHidden) {
+            // Always update the state immediately so the packet listener has the correct information.
             this.playerHiddenState.put(playerUUID, newStateIsHidden);
-            if (!newStateIsHidden && oldStateIsHidden) { // Transitioning from HIDING to NOT HIDING
-                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + " (STOP HIDING). Refreshing full view at Y=" + String.format("%.2f", currentY));
-                this.refreshFullView(player); // Refresh to make everything visible again
-            } else if (newStateIsHidden && !oldStateIsHidden) { // Transitioning from NOT HIDING to HIDING
-                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + " (START HIDING). Relying on packet listener for new/refreshed chunks. Y=" + String.format("%.2f", currentY));
-                // DO NOT call refreshFullView() here to prevent lag spike.
-                // The packet listener will handle new chunks.
-                // Already visible chunks will update if they are resent by the server for other reasons, or as player moves.
+
+            if (!newStateIsHidden) {
+                // ALWAYS refresh when transitioning to a VISIBLE state. This is crucial to prevent players from getting stuck in a void view.
+                debugLog("State changed for " + player.getName() + " to VISIBLE. Refreshing full view at Y=" + String.format("%.2f", currentY));
+                this.refreshFullView(player);
+            } else {
+                // When transitioning to a HIDING state, we can apply a cooldown to prevent lag from rapid movement.
+                long currentTime = System.currentTimeMillis();
+                long expirationTime = refreshCooldowns.getOrDefault(playerUUID, 0L);
+
+                if (currentTime < expirationTime) {
+                    // Cooldown is active, skip the refresh.
+                    debugLog("State changed for " + player.getName() + " to HIDING. Refresh skipped due to active cooldown.");
+                } else {
+                    // Cooldown has expired, perform the refresh and start a new cooldown.
+                    debugLog("State changed for " + player.getName() + " to HIDING. Refreshing full view at Y=" + String.format("%.2f", currentY) + " and starting cooldown.");
+                    this.refreshFullView(player);
+                    refreshCooldowns.put(playerUUID, currentTime + refreshCooldownMillis);
+                }
             }
         } else {
             debugLog("State NOT changed for " + player.getName() + ". Current hidden state: " + newStateIsHidden);
