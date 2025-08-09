@@ -25,4 +25,13 @@ whitelisted-worlds:
   - "world" # Default Overworld name, adjust if yours is different
 # - "world_nether" # NOT RECOMMENDED
 # - "world_the_end"  # NOT RECOMMENDED
+
+# Cooldown in seconds between chunk refreshes for the same player
+# Higher values reduce server load but may delay visual updates
 refresh-cooldown-seconds: 3
+
+# State validation interval in seconds (for Folia compatibility)
+# This task periodically checks and corrects player states to mitigate
+# missed events in Folia's async environment. Lower values provide better
+# responsiveness but use more server resources.
+state-validation-interval-seconds: 10
