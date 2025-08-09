@@ -3,6 +3,10 @@
 - ok, the name seems MISLEADING when its hiding block at a y level not through fancy raytracing or pure ifyoucantseeitthenfakeoresforyou techniques (im looking at you orebfuscator and paper antixray engine mode 2 and 3). At best, this is only an anti base esp plugin.
 - Hides blocks from Y ≤ 16 if the player is ≥ 31.0; very useful against freecam hacks (for real xray prevention you should check out raytraceantixray and use it alongside this)
 # REQUIRES paper 1.20.6+ and packetevents 2.8.0
+# **NOW SUPPORTS FOLIA** - Compatible with both Paper and Folia servers
+- Works with Folia's regionized multithreading architecture
+- Automatically detects server type and uses appropriate schedulers
+- No configuration changes needed for Folia compatibility
 # permission: 
 - ylevelhider.admin: /ylevelhiderworld, /ylevelhiderreload
 - ylevelhider.debug: /ylevelhiderdebug
