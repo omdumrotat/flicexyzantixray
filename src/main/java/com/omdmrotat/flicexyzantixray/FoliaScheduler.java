@@ -91,7 +91,8 @@ public class FoliaScheduler {
             // Use reflection to call Folia's entity scheduler
             Object entityScheduler = player.getClass().getMethod("getScheduler").invoke(player);
             entityScheduler.getClass().getMethod("run", JavaPlugin.class, Runnable.class, Runnable.class)
-                .invoke(entityScheduler, plugin, task, null);
+            entityScheduler.getClass().getMethod("run", JavaPlugin.class, Runnable.class)
+                .invoke(entityScheduler, plugin, task);
         } catch (Exception e) {
             // Fallback to regular scheduler if reflection fails
             plugin.getLogger().warning("Failed to use Folia entity scheduler for player " + player.getName() + ", falling back to Bukkit scheduler: " + e.getMessage());
