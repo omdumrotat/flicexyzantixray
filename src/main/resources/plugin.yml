@@ -5,7 +5,8 @@ api-version: '1.20'
 load: STARTUP
 depend: [packetevents]
 authors: [omdmrotat]
-description: Hides blocks above Y=16 based on player's Y level.
+description: Hides blocks above Y=16 based on player's Y level. Enhanced for Folia compatibility.
+# Features Folia-compatible event handling and state validation
 # Optional: Add loadbefore if another plugin might interact with PacketEvents early
 # loadbefore: []
 # Optional: Add softdepend if you want to use features from another plugin if it's present
