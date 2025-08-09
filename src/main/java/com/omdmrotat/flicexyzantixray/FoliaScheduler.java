@@ -71,7 +71,7 @@ public class FoliaScheduler {
     private static void runFoliaGlobalTask(JavaPlugin plugin, Runnable task) {
         try {
             // Use reflection to call Folia's global region scheduler
-            Class<?> foliaGlobalRegionSchedulerClass = Class.forName("io.papermc.paper.threadedregions.scheduler.FoliaGlobalRegionScheduler");
+            Class<?> foliaGlobalRegionSchedulerClass = Class.forName("io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler");
             Object globalRegionScheduler = Bukkit.class.getMethod("getGlobalRegionScheduler").invoke(null);
             
             foliaGlobalRegionSchedulerClass.getMethod("run", JavaPlugin.class, Runnable.class)
