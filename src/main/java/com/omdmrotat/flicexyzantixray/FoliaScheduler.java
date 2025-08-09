@@ -74,7 +74,7 @@ public class FoliaScheduler {
             Class<?> foliaGlobalRegionSchedulerClass = Class.forName("io.papermc.paper.threadedregions.scheduler.FoliaGlobalRegionScheduler");
             Object globalRegionScheduler = Bukkit.class.getMethod("getGlobalRegionScheduler").invoke(null);
             
-            globalRegionSchedulerClass.getMethod("run", JavaPlugin.class, Runnable.class)
+            foliaGlobalRegionSchedulerClass.getMethod("run", JavaPlugin.class, Runnable.class)
                 .invoke(globalRegionScheduler, plugin, task);
         } catch (Exception e) {
             // Fallback to regular scheduler if reflection fails

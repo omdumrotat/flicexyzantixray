@@ -234,7 +234,17 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 debugMode = !debugMode;
                 String status = debugMode ? ChatColor.GREEN + "ON" : ChatColor.RED + "OFF";
                 sender.sendMessage(ChatColor.YELLOW + "[YLevelHider] Debug mode is now " + status + ChatColor.YELLOW + ".");
+                sender.sendMessage(ChatColor.GRAY + "[YLevelHider] Server type: " + (FoliaScheduler.isFolia() ? "Folia (regionized)" : "Paper/Spigot"));
                 getLogger().info("[YLevelHider] Debug mode toggled to " + (debugMode ? "ON" : "OFF") + " by " + sender.getName());
+                
+                // Test scheduler functionality if sender is a player
+                if (sender instanceof Player) {
+                    Player player = (Player) sender;
+                    sender.sendMessage(ChatColor.BLUE + "[YLevelHider] Testing scheduler compatibility...");
+                    FoliaScheduler.runTask(this, player, () -> {
+                        player.sendMessage(ChatColor.GREEN + "[YLevelHider] Scheduler test successful!");
+                    });
+                }
                 return true;
 
             case "ylevelhiderreload":
