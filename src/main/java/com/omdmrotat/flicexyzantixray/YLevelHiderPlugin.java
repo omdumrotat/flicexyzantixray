@@ -37,9 +37,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerChangedWorldEvent; // Import for world change event
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerRespawnEvent; // Additional event for respawning
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.StringUtil;
 
@@ -66,6 +68,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     private boolean debugMode = false;
     private int refreshCooldownMillis = 3000;
     private Set<String> whitelistedWorlds = new HashSet<>();
+    private BukkitTask stateValidationTask;
+    private int stateValidationIntervalSeconds = 10; // Configurable validation interval
 
     public static YLevelHiderPlugin getInstance() {
         return instance;
@@ -103,6 +107,15 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         this.refreshCooldownMillis = cooldownSeconds * 1000;
         infoLog("Refresh cooldown set to " + cooldownSeconds + " seconds (" + this.refreshCooldownMillis + "ms).");
+        
+        // Load state validation interval
+        int validationSeconds = config.getInt("state-validation-interval-seconds", 10);
+        if (!config.contains("state-validation-interval-seconds")) {
+            config.set("state-validation-interval-seconds", 10);
+            saveConfig();
+        }
+        this.stateValidationIntervalSeconds = validationSeconds;
+        infoLog("State validation interval set to " + validationSeconds + " seconds (for Folia compatibility).");
     }
 
     public boolean isWorldWhitelisted(String worldName) {
@@ -209,11 +222,21 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         getLogger().info(getName() + " has been enabled. Debug mode is currently: " + (debugMode ? "ON" : "OFF"));
         getLogger().info("[YLevelHider] Active in worlds: " + whitelistedWorlds);
         getLogger().info("[YLevelHider] Server type detected: " + (FoliaScheduler.isFolia() ? "Folia (regionized threading)" : "Paper/Spigot (single-threaded)"));
+        
+        // Start periodic state validation task for Folia compatibility
+        startStateValidationTask();
     }
 
     @Override
     public void onDisable() {
         infoLog("onDisable() called.");
+        
+        // Cancel the state validation task
+        if (stateValidationTask != null) {
+            stateValidationTask.cancel();
+            stateValidationTask = null;
+        }
+        
         if (PacketEvents.getAPI() != null && PacketEvents.getAPI().isLoaded()) {
             PacketEvents.getAPI().terminate();
             debugLog("PacketEvents API terminated.");
@@ -252,7 +275,18 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                     sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
                     return true;
                 }
+                
+                // Cancel existing validation task before reload
+                if (stateValidationTask != null) {
+                    stateValidationTask.cancel();
+                    stateValidationTask = null;
+                }
+                
                 loadConfigValues();
+                
+                // Restart validation task with new settings
+                startStateValidationTask();
+                
                 sender.sendMessage(ChatColor.GREEN + "[YLevelHider] Configuration reloaded. Whitelisted worlds: " + whitelistedWorlds);
                 getLogger().info("[YLevelHider] Configuration reloaded by " + sender.getName() + ". Whitelisted worlds: " + whitelistedWorlds);
                 for (Player p : Bukkit.getOnlinePlayers()) {
@@ -477,6 +511,12 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         boolean toWorldIsWhitelisted = isWorldWhitelisted(to.getWorld().getName());
         boolean fromWorldIsWhitelisted = isWorldWhitelisted(event.getFrom().getWorld().getName());
 
+        // Log teleport events for better debugging in Folia
+        debugLog("PlayerTeleportEvent: " + player.getName() + 
+                " from " + event.getFrom().getWorld().getName() + " Y=" + String.format("%.2f", event.getFrom().getY()) +
+                " to " + to.getWorld().getName() + " Y=" + String.format("%.2f", to.getY()) +
+                " Cause: " + event.getCause());
+
         if (!toWorldIsWhitelisted) {
             // Handle teleporting OUT of a whitelisted world.
             if (fromWorldIsWhitelisted && playerHiddenState.remove(player.getUniqueId()) != null) {
@@ -498,7 +538,9 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         boolean newStateIsHidden = destY >= 31.0;
 
         if (oldStateIsHidden == newStateIsHidden) {
-            return; // No state change, so no special handling is needed.
+            // Even if no state change, ensure state is correctly recorded for Folia reliability
+            playerHiddenState.put(playerUUID, newStateIsHidden);
+            return;
         }
 
         // This is the critical race condition: teleporting from a HIDING state to a NOT HIDING state where chunks may be unloaded.
@@ -548,6 +590,33 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             debugLog("onPlayerMove: 'to' location is null. Skipping.");
             return;
         }
+        
+        // Check for potential missed teleportation (large distance movement)
+        double distance = from.distance(to);
+        if (distance > 50.0) { // Threshold for detecting potential teleportation
+            debugLog("Large movement detected for " + player.getName() + " (distance: " + String.format("%.2f", distance) + "). Potential missed teleport event - handling as teleport.");
+            
+            // Handle this as a potential missed teleport
+            UUID playerUUID = player.getUniqueId();
+            double destY = to.getY();
+            boolean expectedHiddenState = destY >= 31.0;
+            boolean currentHiddenState = playerHiddenState.getOrDefault(playerUUID, expectedHiddenState);
+            
+            if (currentHiddenState != expectedHiddenState) {
+                debugLog("State correction needed for potential missed teleport: " + player.getName() + 
+                        " Y=" + String.format("%.2f", destY) + 
+                        " Old=" + currentHiddenState + " New=" + expectedHiddenState);
+                
+                playerHiddenState.put(playerUUID, expectedHiddenState);
+                
+                // Force refresh for potential missed teleport
+                long currentTime = System.currentTimeMillis();
+                refreshFullView(player);
+                refreshCooldowns.put(playerUUID, currentTime + refreshCooldownMillis);
+                return;
+            }
+        }
+        
         if (from.getBlockY() == to.getBlockY()) {
             return;
         }
@@ -590,6 +659,93 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         } else {
             debugLog("State NOT changed for " + player.getName() + ". Current hidden state: " + newStateIsHidden);
         }
+    }
+
+    /**
+     * Starts a periodic task to validate and correct player states.
+     * This helps mitigate event reliability issues in Folia.
+     */
+    private void startStateValidationTask() {
+        long intervalTicks = stateValidationIntervalSeconds * 20L; // Convert seconds to ticks
+        // Run validation task periodically to check for state inconsistencies
+        stateValidationTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+            try {
+                validatePlayerStates();
+            } catch (Exception e) {
+                getLogger().warning("[YLevelHider] Error in state validation task: " + e.getMessage());
+                if (debugMode) {
+                    e.printStackTrace();
+                }
+            }
+        }, intervalTicks, intervalTicks); // Start after interval, repeat every interval
+        
+        debugLog("State validation task started with " + stateValidationIntervalSeconds + " second interval for Folia compatibility.");
+    }
+
+    /**
+     * Validates that all online players have correct hidden states.
+     * Corrects any inconsistencies found.
+     */
+    private void validatePlayerStates() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!isWorldWhitelisted(player.getWorld().getName())) {
+                // Player in non-whitelisted world should not have hidden state
+                if (playerHiddenState.remove(player.getUniqueId()) != null) {
+                    debugLog("State validation: Corrected " + player.getName() + " in non-whitelisted world " + player.getWorld().getName());
+                    refreshFullView(player);
+                }
+                continue;
+            }
+
+            double currentY = player.getLocation().getY();
+            boolean expectedHiddenState = currentY >= 31.0;
+            Boolean currentHiddenState = playerHiddenState.get(player.getUniqueId());
+
+            if (currentHiddenState == null || currentHiddenState != expectedHiddenState) {
+                debugLog("State validation: Correcting state for " + player.getName() + 
+                        " Y=" + String.format("%.2f", currentY) + 
+                        " Expected=" + expectedHiddenState + 
+                        " Current=" + currentHiddenState);
+                        
+                playerHiddenState.put(player.getUniqueId(), expectedHiddenState);
+                
+                // Only refresh if cooldown has expired to avoid spam
+                UUID playerUUID = player.getUniqueId();
+                long currentTime = System.currentTimeMillis();
+                long expirationTime = refreshCooldowns.getOrDefault(playerUUID, 0L);
+                
+                if (currentTime >= expirationTime) {
+                    refreshFullView(player);
+                    refreshCooldowns.put(playerUUID, currentTime + refreshCooldownMillis);
+                }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        World respawnWorld = event.getRespawnLocation().getWorld();
+        
+        if (respawnWorld == null) return;
+        
+        infoLog("PlayerRespawnEvent for " + player.getName() + " in world " + respawnWorld.getName());
+
+        // Schedule state handling for next tick to ensure player is fully loaded
+        Bukkit.getScheduler().runTask(this, () -> {
+            if (player.isOnline()) {
+                if (isWorldWhitelisted(respawnWorld.getName())) {
+                    debugLog("Player " + player.getName() + " respawned in whitelisted world " + respawnWorld.getName() + ". Handling initial state.");
+                    handlePlayerInitialState(player, true);
+                } else {
+                    boolean wasHidden = playerHiddenState.remove(player.getUniqueId()) != null;
+                    if (wasHidden) {
+                        debugLog("Player " + player.getName() + " respawned in non-whitelisted world " + respawnWorld.getName() + ". State cleared, refreshing.");
+                        refreshFullView(player);
+                    }
+                }
+            }
+        });
     }
 
     public WrappedBlockState getAirState() {
