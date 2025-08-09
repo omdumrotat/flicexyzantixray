@@ -90,7 +90,6 @@ public class FoliaScheduler {
         try {
             // Use reflection to call Folia's entity scheduler
             Object entityScheduler = player.getClass().getMethod("getScheduler").invoke(player);
-            entityScheduler.getClass().getMethod("run", JavaPlugin.class, Runnable.class, Runnable.class)
             entityScheduler.getClass().getMethod("run", JavaPlugin.class, Runnable.class)
                 .invoke(entityScheduler, plugin, task);
         } catch (Exception e) {
