@@ -178,7 +178,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         debugLog("Commands registered.");
 
 
-        Bukkit.getScheduler().runTask(this, () -> {
+        FoliaScheduler.runTask(this, () -> {
             if (this.isEnabled() && packetEventsAPI.isLoaded()) {
                 packetEventsAPI.init();
                 infoLog("PacketEvents.init() called via scheduler.");
@@ -208,6 +208,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
 
         getLogger().info(getName() + " has been enabled. Debug mode is currently: " + (debugMode ? "ON" : "OFF"));
         getLogger().info("[YLevelHider] Active in worlds: " + whitelistedWorlds);
+        getLogger().info("[YLevelHider] Server type detected: " + (FoliaScheduler.isFolia() ? "Folia (regionized threading)" : "Paper/Spigot (single-threaded)"));
     }
 
     @Override
@@ -392,7 +393,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         if (!Bukkit.isPrimaryThread()) {
             final int finalRadius = radiusChunks;
             debugLog("Not on main thread. Scheduling performRefresh for " + player.getName() + " with radius " + finalRadius);
-            Bukkit.getScheduler().runTask(this, () -> performRefresh(player, finalRadius));
+            FoliaScheduler.runTask(this, player, () -> performRefresh(player, finalRadius));
             return;
         }
 
@@ -470,7 +471,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             // Handle teleporting OUT of a whitelisted world.
             if (fromWorldIsWhitelisted && playerHiddenState.remove(player.getUniqueId()) != null) {
                 // Schedule the refresh for after the teleport is complete.
-                Bukkit.getScheduler().runTask(this, () -> {
+                FoliaScheduler.runTask(this, player, () -> {
                     if (player.isOnline()) {
                         debugLog("Player " + player.getName() + " teleported out of a whitelisted world. Refreshing view.");
                         refreshFullView(player);
@@ -496,7 +497,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             playerHiddenState.put(playerUUID, false); // Update state immediately
             event.setCancelled(true); // Cancel original event
             // Schedule a new teleport for the next tick. By then, the state is correct, and packets will be generated properly.
-            Bukkit.getScheduler().runTask(this, () -> {
+            FoliaScheduler.runTask(this, player, () -> {
                 if (!player.isOnline()) return;
                 internallyTeleporting.add(playerUUID);
                 try {
