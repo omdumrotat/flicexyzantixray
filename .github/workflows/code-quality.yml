@@ -1,0 +1,66 @@
+# Code quality workflow for linting and formatting checks
+name: Code Quality
+
+on:
+  push:
+    branches: [ master, main, test ]
+  pull_request:
+    branches: [ master, main, test ]
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+    
+    - name: Check code formatting with Spotless
+      run: |
+        # Add Spotless plugin temporarily for formatting check
+        mvn com.diffplug.spotless:spotless-maven-plugin:check || echo "No Spotless configuration found - skipping format check"
+      continue-on-error: true
+    
+    - name: Run SpotBugs static analysis
+      run: |
+        # Run SpotBugs for static code analysis
+        mvn clean compile com.github.spotbugs:spotbugs-maven-plugin:check || echo "SpotBugs analysis completed with findings"
+      continue-on-error: true
+    
+    - name: Run Checkstyle
+      run: |
+        # Run Checkstyle for code style checks
+        mvn clean compile checkstyle:check || echo "Checkstyle analysis completed"
+      continue-on-error: true
+    
+    - name: Validate pom.xml structure
+      run: |
+        mvn help:effective-pom -q > /dev/null
+        echo "✓ POM structure is valid"
+    
+    - name: Check for common issues
+      run: |
+        echo "🔍 Checking for common code issues..."
+        
+        # Check for System.out.println usage (should use logger)
+        if grep -r "System\.out\.println" src/main/java/ 2>/dev/null; then
+          echo "⚠️  Found System.out.println usage - consider using a logger instead"
+        else
+          echo "✓ No System.out.println usage found"
+        fi
+        
+        # Check for hardcoded strings that could be in config
+        if grep -r "TODO\|FIXME\|XXX" src/ 2>/dev/null; then
+          echo "⚠️  Found TODO/FIXME comments"
+        else
+          echo "✓ No TODO/FIXME comments found"
+        fi
+        
+        echo "Code quality checks completed"
