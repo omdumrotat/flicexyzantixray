@@ -1,0 +1,64 @@
+# Build validation workflow - lightweight checks on every push
+name: Build Validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Validate repository structure
+      run: |
+        echo "🔍 Validating repository structure..."
+        
+        # Check required files exist
+        required_files=("pom.xml" "src/main/java" "src/main/resources/plugin.yml")
+        for file in "${required_files[@]}"; do
+          if [ -e "$file" ]; then
+            echo "✓ Found: $file"
+          else
+            echo "❌ Missing: $file"
+            exit 1
+          fi
+        done
+        
+        echo "✓ Repository structure is valid"
+    
+    - name: Check file encoding
+      run: |
+        echo "🔍 Checking file encoding..."
+        # Check that Java files are UTF-8 encoded
+        find src -name "*.java" -exec file {} \; | grep -v "UTF-8\|ASCII" || echo "✓ All Java files are properly encoded"
+    
+    - name: Validate plugin.yml
+      run: |
+        echo "🔍 Validating plugin.yml..."
+        if [ -f "src/main/resources/plugin.yml" ]; then
+          # Basic YAML validation
+          python3 -c "import yaml; yaml.safe_load(open('src/main/resources/plugin.yml', 'r'))" && echo "✓ plugin.yml is valid YAML"
+        else
+          echo "❌ plugin.yml not found"
+          exit 1
+        fi
+    
+    - name: Count source files
+      run: |
+        echo "📊 Repository statistics:"
+        echo "- Java files: $(find src -name "*.java" | wc -l)"
+        echo "- Resource files: $(find src/main/resources -type f | wc -l)"
+        echo "- Total source lines: $(find src -name "*.java" -exec wc -l {} + | tail -1 | awk '{print $1}' || echo 0)"
+    
+    - name: Project info
+      run: |
+        echo "## Project Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Project:** $(grep '<artifactId>' pom.xml | head -1 | sed 's/.*<artifactId>\(.*\)<\/artifactId>.*/\1/')" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** $(grep '<version>' pom.xml | head -1 | sed 's/.*<version>\(.*\)<\/version>.*/\1/')" >> $GITHUB_STEP_SUMMARY
+        echo "- **Java Version:** $(grep '<java.version>' pom.xml | sed 's/.*<java.version>\(.*\)<\/java.version>.*/\1/')" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
