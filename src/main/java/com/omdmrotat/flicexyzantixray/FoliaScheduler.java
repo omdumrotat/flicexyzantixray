@@ -41,10 +41,20 @@ public class FoliaScheduler {
      * @param task the task to run
      */
     public static void runTask(JavaPlugin plugin, Runnable task) {
+        // Check if plugin is enabled before scheduling any tasks
+        if (!plugin.isEnabled()) {
+            plugin.getLogger().warning("[FoliaScheduler] Attempted to schedule task while plugin is disabled. Task will be skipped.");
+            return;
+        }
+        
         if (IS_FOLIA) {
             runFoliaGlobalTask(plugin, task);
         } else {
-            Bukkit.getScheduler().runTask(plugin, task);
+            try {
+                Bukkit.getScheduler().runTask(plugin, task);
+            } catch (Exception e) {
+                plugin.getLogger().warning("[FoliaScheduler] Failed to schedule task on Bukkit scheduler: " + e.getMessage());
+            }
         }
     }
     
@@ -58,10 +68,20 @@ public class FoliaScheduler {
      * @param task the task to run
      */
     public static void runTask(JavaPlugin plugin, Player player, Runnable task) {
+        // Check if plugin is enabled before scheduling any tasks
+        if (!plugin.isEnabled()) {
+            plugin.getLogger().warning("[FoliaScheduler] Attempted to schedule player task while plugin is disabled. Task will be skipped.");
+            return;
+        }
+        
         if (IS_FOLIA) {
             runFoliaEntityTask(plugin, player, task);
         } else {
-            Bukkit.getScheduler().runTask(plugin, task);
+            try {
+                Bukkit.getScheduler().runTask(plugin, task);
+            } catch (Exception e) {
+                plugin.getLogger().warning("[FoliaScheduler] Failed to schedule player task on Bukkit scheduler: " + e.getMessage());
+            }
         }
     }
     
@@ -77,9 +97,15 @@ public class FoliaScheduler {
             foliaGlobalRegionSchedulerClass.getMethod("run", JavaPlugin.class, Runnable.class)
                 .invoke(globalRegionScheduler, plugin, task);
         } catch (Exception e) {
-            // Fallback to regular scheduler if reflection fails
+            // Fallback to regular scheduler if reflection fails, but only if plugin is still enabled
             plugin.getLogger().warning("Failed to use Folia global scheduler, falling back to Bukkit scheduler: " + e.getMessage());
-            Bukkit.getScheduler().runTask(plugin, task);
+            if (plugin.isEnabled()) {
+                try {
+                    Bukkit.getScheduler().runTask(plugin, task);
+                } catch (Exception fallbackException) {
+                    plugin.getLogger().warning("Bukkit scheduler fallback also failed: " + fallbackException.getMessage());
+                }
+            }
         }
     }
     
@@ -93,9 +119,15 @@ public class FoliaScheduler {
             entityScheduler.getClass().getMethod("run", JavaPlugin.class, Runnable.class)
                 .invoke(entityScheduler, plugin, task, (Runnable) () -> {});
         } catch (Exception e) {
-            // Fallback to regular scheduler if reflection fails
+            // Fallback to regular scheduler if reflection fails, but only if plugin is still enabled
             plugin.getLogger().warning("Failed to use Folia entity scheduler for player " + player.getName() + ", falling back to Bukkit scheduler: " + e.getMessage());
-            Bukkit.getScheduler().runTask(plugin, task);
+            if (plugin.isEnabled()) {
+                try {
+                    Bukkit.getScheduler().runTask(plugin, task);
+                } catch (Exception fallbackException) {
+                    plugin.getLogger().warning("Bukkit scheduler fallback also failed for player " + player.getName() + ": " + fallbackException.getMessage());
+                }
+            }
         }
     }
 }
