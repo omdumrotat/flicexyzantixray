@@ -79,6 +79,12 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     private BukkitTask stateValidationTask;
     private int stateValidationIntervalSeconds = 10; // Configurable validation interval
     private BukkitTask chunkUncoverTask; // Task for checking player look direction
+    
+    // Enhanced anti-xray configuration
+    boolean hideEntitiesBelowY30 = true;
+    String fakeBlockMaterial = "DEEPSLATE";
+    int lookDetectionRange = 5;
+    int lookCheckIntervalTicks = 10;
 
     public static YLevelHiderPlugin getInstance() {
         return instance;
@@ -125,6 +131,35 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         this.stateValidationIntervalSeconds = validationSeconds;
         infoLog("State validation interval set to " + validationSeconds + " seconds (for Folia compatibility).");
+        
+        // Load enhanced anti-xray settings
+        this.hideEntitiesBelowY30 = config.getBoolean("hide-entities-below-y30", true);
+        if (!config.contains("hide-entities-below-y30")) {
+            config.set("hide-entities-below-y30", true);
+            saveConfig();
+        }
+        infoLog("Entity hiding below Y=30: " + (hideEntitiesBelowY30 ? "ENABLED" : "DISABLED"));
+        
+        this.fakeBlockMaterial = config.getString("fake-block-material", "DEEPSLATE");
+        if (!config.contains("fake-block-material")) {
+            config.set("fake-block-material", "DEEPSLATE");
+            saveConfig();
+        }
+        infoLog("Fake block material set to: " + fakeBlockMaterial);
+        
+        this.lookDetectionRange = config.getInt("look-detection-range", 5);
+        if (!config.contains("look-detection-range")) {
+            config.set("look-detection-range", 5);
+            saveConfig();
+        }
+        infoLog("Look detection range set to: " + lookDetectionRange + " blocks");
+        
+        this.lookCheckIntervalTicks = config.getInt("look-check-interval-ticks", 10);
+        if (!config.contains("look-check-interval-ticks")) {
+            config.set("look-check-interval-ticks", 10);
+            saveConfig();
+        }
+        infoLog("Look check interval set to: " + lookCheckIntervalTicks + " ticks (" + String.format("%.1f", lookCheckIntervalTicks / 20.0) + " seconds)");
     }
 
     public boolean isWorldWhitelisted(String worldName) {
@@ -173,20 +208,21 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             airStateGlobalId = airState.getGlobalId();
             debugLog("AIR block state initialized successfully. Global ID: " + airStateGlobalId);
             
-            deepslateState = WrappedBlockState.getByString("minecraft:deepslate");
+            String materialName = "minecraft:" + fakeBlockMaterial.toLowerCase();
+            deepslateState = WrappedBlockState.getByString(materialName);
             if (deepslateState == null) {
-                throw new IllegalStateException("WrappedBlockState.getByString(\"minecraft:deepslate\") returned null.");
+                throw new IllegalStateException("WrappedBlockState.getByString(\"" + materialName + "\") returned null.");
             }
             deepslateStateGlobalId = deepslateState.getGlobalId();
-            debugLog("DEEPSLATE block state initialized successfully. Global ID: " + deepslateStateGlobalId);
+            debugLog(fakeBlockMaterial + " block state initialized successfully. Global ID: " + deepslateStateGlobalId);
         } catch (Exception e) {
-            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR or DEEPSLATE: " + e.getMessage());
+            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR or " + fakeBlockMaterial + ": " + e.getMessage());
             airState = null;
             deepslateState = null;
         }
 
         if (airState == null || deepslateState == null) {
-            getLogger().severe("[YLevelHider] Could not initialize AIR or DEEPSLATE block state. Disabling plugin.");
+            getLogger().severe("[YLevelHider] Could not initialize AIR or " + fakeBlockMaterial + " block state. Disabling plugin.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -715,7 +751,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
      * When detected, uncovers the relevant chunks.
      */
     private void startChunkUncoverTask() {
-        long intervalTicks = 10L; // Check every 0.5 seconds (10 ticks)
+        long intervalTicks = lookCheckIntervalTicks;
         chunkUncoverTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
             try {
                 checkPlayerLookingAtFakeBlocks();
@@ -727,7 +763,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             }
         }, intervalTicks, intervalTicks);
         
-        debugLog("Chunk uncovering task started with 0.5 second intervals.");
+        debugLog("Chunk uncovering task started with " + lookCheckIntervalTicks + " tick intervals (" + String.format("%.1f", lookCheckIntervalTicks / 20.0) + " seconds).");
     }
 
     /**
@@ -794,16 +830,17 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             
             try {
                 // Perform raycast to see what block the player is looking at
-                org.bukkit.block.Block targetBlock = player.getTargetBlockExact(5); // 5 block range
+                org.bukkit.block.Block targetBlock = player.getTargetBlockExact(lookDetectionRange);
                 
-                if (targetBlock != null && targetBlock.getType() == org.bukkit.Material.DEEPSLATE) {
+                // Check if looking at the configured fake block material
+                if (targetBlock != null && targetBlock.getType() == org.bukkit.Material.valueOf(fakeBlockMaterial)) {
                     int chunkX = targetBlock.getX() >> 4;
                     int chunkZ = targetBlock.getZ() >> 4;
                     String chunkKey = chunkX + "," + chunkZ;
                     
-                    // Check if this chunk contains fake deepslate
+                    // Check if this chunk contains fake blocks
                     if (fakeChunks.contains(chunkKey) && targetBlock.getY() <= 16) {
-                        debugLog("Player " + player.getName() + " looking at fake deepslate at " + 
+                        debugLog("Player " + player.getName() + " looking at fake " + fakeBlockMaterial + " at " + 
                                 targetBlock.getX() + "," + targetBlock.getY() + "," + targetBlock.getZ() + 
                                 " in chunk " + chunkKey + ". Uncovering chunk.");
                         
@@ -941,7 +978,7 @@ class ChunkPacketListenerPE implements PacketListener {
         if (shouldHide) {
             WrappedBlockState deepslate = plugin.getDeepslateState();
             if (deepslate == null) {
-                plugin.getLogger().warning("[YLevelHider][PacketListener] DEEPSLATE block state is not available. Cannot modify chunk for " + player.getName());
+                plugin.getLogger().warning("[YLevelHider][PacketListener] " + plugin.fakeBlockMaterial + " block state is not available. Cannot modify chunk for " + player.getName());
                 return;
             }
             listenerDebugLog("Proceeding to modify CHUNK_DATA for " + player.getName());
@@ -1004,7 +1041,7 @@ class ChunkPacketListenerPE implements PacketListener {
                                     WrappedBlockState currentState = section.get(relX, yInSection, relZ);
                                     if (currentState != null && !currentState.equals(deepslate)) {
                                         listenerDebugLog("CHUNK_DATA: Changing block at [" + relX + "," + yInSection + "," + relZ + "] in section " + sectionIndex +
-                                                " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to DEEPSLATE for player " + player.getName());
+                                                " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to " + plugin.fakeBlockMaterial + " for player " + player.getName());
                                         section.set(relX, yInSection, relZ, deepslate);
                                         modified = true;
                                     }
@@ -1029,7 +1066,7 @@ class ChunkPacketListenerPE implements PacketListener {
                 plugin.playerFakeChunks.computeIfAbsent(playerUUID, k -> ConcurrentHashMap.newKeySet()).add(chunkKey);
                 
                 event.markForReEncode(true);
-                listenerDebugLog("CHUNK_DATA for " + player.getName() + " was modified to hide blocks at Y<=16 with DEEPSLATE and marked for re-encode.");
+                listenerDebugLog("CHUNK_DATA for " + player.getName() + " was modified to hide blocks at Y<=16 with " + plugin.fakeBlockMaterial + " and marked for re-encode.");
             } else {
                 listenerDebugLog("CHUNK_DATA for " + player.getName() + " processed, but no blocks were modified (shouldHide=" + shouldHide + ").");
             }
@@ -1051,7 +1088,7 @@ class ChunkPacketListenerPE implements PacketListener {
             if (blockPos != null && blockPos.getY() <= 16) {
                 WrappedBlockState currentState = wrapper.getBlockState();
                 if (currentState != null && !currentState.equals(deepslate)) {
-                    listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to DEEPSLATE for " + player.getName());
+                    listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to " + plugin.fakeBlockMaterial + " for " + player.getName());
                     wrapper.setBlockState(deepslate);
                     event.markForReEncode(true);
                 }
@@ -1087,7 +1124,7 @@ class ChunkPacketListenerPE implements PacketListener {
                 if (currentWorldY <= 16) {
                     int deepslateId = plugin.getDeepslateStateGlobalId();
                     if (currentBlockId != deepslateId) {
-                        listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to DEEPSLATE for " + player.getName());
+                        listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to " + plugin.fakeBlockMaterial + " for " + player.getName());
                         try {
                             record.setBlockId(deepslateId);
                             modifiedInPacket = true;
@@ -1108,7 +1145,7 @@ class ChunkPacketListenerPE implements PacketListener {
     private void handleEntitySpawnPacket(PacketSendEvent event, Player player) {
         listenerDebugLog("Intercepted SPAWN_ENTITY packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
-        if (shouldHide) {
+        if (shouldHide && plugin.hideEntitiesBelowY30) {
             try {
                 WrapperPlayServerSpawnEntity wrapper = new WrapperPlayServerSpawnEntity(event);
                 Vector3d entityPos = wrapper.getPosition();
@@ -1126,7 +1163,7 @@ class ChunkPacketListenerPE implements PacketListener {
     private void handleLivingEntitySpawnPacket(PacketSendEvent event, Player player) {
         listenerDebugLog("Intercepted SPAWN_LIVING_ENTITY packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
-        if (shouldHide) {
+        if (shouldHide && plugin.hideEntitiesBelowY30) {
             try {
                 WrapperPlayServerSpawnLivingEntity wrapper = new WrapperPlayServerSpawnLivingEntity(event);
                 Vector3d entityPos = wrapper.getPosition();
