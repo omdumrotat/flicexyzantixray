@@ -247,17 +247,13 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         this.getCommand("ylevelhiderworld").setTabCompleter(this);
         debugLog("Commands registered.");
 
-
-        FoliaScheduler.runTask(this, () -> {
-            if (this.isEnabled() && packetEventsAPI.isLoaded()) {
-                packetEventsAPI.init();
-                infoLog("PacketEvents.init() called via scheduler.");
-            } else if (!this.isEnabled()){
-                getLogger().warning("[YLevelHider] Plugin was disabled before PacketEvents.init() could be called via scheduler.");
-            } else {
-                getLogger().warning("[YLevelHider] PacketEvents API was not loaded when scheduled init task ran.");
-            }
-        });
+        // Initialize PacketEvents directly - no need to schedule this during plugin enable
+        if (packetEventsAPI.isLoaded()) {
+            packetEventsAPI.init();
+            infoLog("PacketEvents.init() called during plugin enable.");
+        } else {
+            getLogger().warning("[YLevelHider] PacketEvents API was not loaded during plugin enable.");
+        }
 
 
         try {
