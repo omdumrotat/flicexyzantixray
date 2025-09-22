@@ -921,52 +921,70 @@ class ChunkPacketListenerPE implements PacketListener {
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        listenerDebugLog("onPacketSend CALLED. PacketType: " + event.getPacketType().getName());
+        try {
+            // Safely get packet type name to avoid classloader issues
+            String packetTypeName;
+            try {
+                packetTypeName = event.getPacketType().getName();
+            } catch (Throwable t) {
+                // Fallback if classloader is closed or other issues occur
+                packetTypeName = "UNKNOWN_PACKET_TYPE";
+            }
+            
+            listenerDebugLog("onPacketSend CALLED. PacketType: " + packetTypeName);
 
-        User user = event.getUser();
-        if (user == null) {
-            listenerDebugLog("User object is null in onPacketSend. Skipping.");
-            return;
-        }
+            User user = event.getUser();
+            if (user == null) {
+                listenerDebugLog("User object is null in onPacketSend. Skipping.");
+                return;
+            }
 
-        UUID userUUID = user.getUUID();
-        if (userUUID == null) {
-            return;
-        }
+            UUID userUUID = user.getUUID();
+            if (userUUID == null) {
+                return;
+            }
 
-        Player player = Bukkit.getPlayer(userUUID);
-        if (player == null || !player.isOnline()) {
-            listenerDebugLog("Bukkit.getPlayer(uuid) returned null or player offline for packet type: " + event.getPacketType().getName());
-            return;
-        }
+            Player player = Bukkit.getPlayer(userUUID);
+            if (player == null || !player.isOnline()) {
+                listenerDebugLog("Bukkit.getPlayer(uuid) returned null or player offline for packet type: " + packetTypeName);
+                return;
+            }
 
-        // Add a null-check for the player's world to prevent errors during world change/login.
-        World playerWorld = player.getWorld();
-        if (playerWorld == null || !plugin.isWorldWhitelisted(playerWorld.getName())) {
-            return;
-        }
+            // Add a null-check for the player's world to prevent errors during world change/login.
+            World playerWorld = player.getWorld();
+            if (playerWorld == null || !plugin.isWorldWhitelisted(playerWorld.getName())) {
+                return;
+            }
 
-        listenerDebugLog("Processing packet for " + player.getName() + " in whitelisted world " + player.getWorld().getName() + ". PacketType: " + event.getPacketType().getName());
+            listenerDebugLog("Processing packet for " + player.getName() + " in whitelisted world " + player.getWorld().getName() + ". PacketType: " + packetTypeName);
 
-        // Handle CHUNK_DATA
-        if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
-            handleChunkDataPacket(event, player);
-        }
-        // Handle BLOCK_CHANGE
-        else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
-            handleBlockChangePacket(event, player);
-        }
-        // Handle MULTI_BLOCK_CHANGE
-        else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
-            handleMultiBlockChangePacket(event, player);
-        }
-        // Handle ENTITY_SPAWN (for non-living entities like armor stands)
-        else if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
-            handleEntitySpawnPacket(event, player);
-        }
-        // Handle SPAWN_LIVING_ENTITY
-        else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
-            handleLivingEntitySpawnPacket(event, player);
+            // Handle CHUNK_DATA
+            if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
+                handleChunkDataPacket(event, player);
+            }
+            // Handle BLOCK_CHANGE
+            else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
+                handleBlockChangePacket(event, player);
+            }
+            // Handle MULTI_BLOCK_CHANGE
+            else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
+                handleMultiBlockChangePacket(event, player);
+            }
+            // Handle ENTITY_SPAWN (for non-living entities like armor stands)
+            else if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
+                handleEntitySpawnPacket(event, player);
+            }
+            // Handle SPAWN_LIVING_ENTITY
+            else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
+                handleLivingEntitySpawnPacket(event, player);
+            }
+        } catch (Throwable t) {
+            // Catch any unexpected errors to prevent them from bubbling up to PacketEvents
+            // This prevents the zip file closed error and other classloader issues
+            plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            if (plugin.isDebugMode()) {
+                t.printStackTrace();
+            }
         }
     }
 
