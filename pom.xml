@@ -40,6 +40,15 @@
                         </goals>
                     </execution>
                 </executions>
+<configuration>
+                <relocations>
+                    <relocation>
+                        <pattern>com.tcoded.folialib</pattern>
+                   
+                        <shadedPattern>com.omdmrotat.flicexyzantixray.lib.folialib</shadedPattern>
+                    </relocation>
+                </relocations>
+            </configuration>
             </plugin>
         </plugins>
         <resources>
@@ -103,13 +112,5 @@
         <scope>compile</scope>
     </dependency>
     </dependencies>
- <configuration>
-                <relocations>
-                    <relocation>
-                        <pattern>com.tcoded.folialib</pattern>
-                        <!-- !! MAKE SURE TO CHANGE THIS TO YOUR PLUGIN'S GROUP & PLUGIN NAME !! -->
-                        <shadedPattern>com.omdmrotat.flicexyzantixray.lib.folialib</shadedPattern>
-                    </relocation>
-                </relocations>
-            </configuration>
+ 
 </project>
