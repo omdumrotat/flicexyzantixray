@@ -1,75 +1,86 @@
 package com.omdmrotat.flicexyzantixray; // Your package
 
 // PacketEvents v2.x imports - using com.github.retrooper.packetevents
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.PacketEventsAPI; // Base API interface
-import com.github.retrooper.packetevents.event.PacketListener; // Import PacketListener interface
-import com.github.retrooper.packetevents.event.PacketListenerPriority;
-import com.github.retrooper.packetevents.event.PacketSendEvent;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent; // Import for PacketListener interface
-
-import com.github.retrooper.packetevents.protocol.player.User;
-import com.github.retrooper.packetevents.protocol.world.chunk.BaseChunk;
-import com.github.retrooper.packetevents.protocol.world.chunk.Column; // Import the Column class
-import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
-import com.github.retrooper.packetevents.wrapper.PacketWrapper; // Generic wrapper
-// Import the specific wrapper class we identified
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange; // Import for BlockChange
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange; // Import for MultiBlockChange
-import com.github.retrooper.packetevents.util.Vector3i; // Import for Vector3i
-
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-
-
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Location;
-import org.bukkit.World;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-// import org.bukkit.event.Listener; // Already in main class
-import org.bukkit.event.player.PlayerChangedWorldEvent; // Import for world change event
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.event.player.PlayerRespawnEvent; // Additional event for respawning
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.scheduler.BukkitTask;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.util.StringUtil;
-
-import java.lang.reflect.Constructor;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
+import java.util.Arrays; // Base API interface
+import java.util.Collections; // Import PacketListener interface
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Map; // Import for PacketListener interface
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentHashMap; // Import the Column class
 import java.util.stream.Collectors;
+
+import org.bukkit.Bukkit; // Generic wrapper
+import org.bukkit.ChatColor;
+import org.bukkit.World; // Import for BlockChange
+import org.bukkit.command.Command; // Import for MultiBlockChange
+import org.bukkit.command.CommandExecutor; // Import for entity spawning
+import org.bukkit.command.CommandSender; // Import for living entity spawning
+import org.bukkit.command.TabCompleter; // Import for entity destruction
+import org.bukkit.configuration.file.FileConfiguration; // Import for Vector3i
+import org.bukkit.entity.Player; // Import for Vector3d
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.StringUtil;
+
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.PacketEventsAPI; // Import for world change event
+import com.github.retrooper.packetevents.event.PacketListener;
+import com.github.retrooper.packetevents.event.PacketListenerPriority;
+import com.github.retrooper.packetevents.event.PacketReceiveEvent; // Additional event for respawning
+import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.player.User;
+import com.github.retrooper.packetevents.protocol.world.chunk.BaseChunk;
+import com.github.retrooper.packetevents.protocol.world.chunk.Column;
+import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
+import com.github.retrooper.packetevents.util.Vector3d;
+import com.github.retrooper.packetevents.util.Vector3i;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnLivingEntity;
+import com.tcoded.folialib.FoliaLib;
 
 public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Listener, CommandExecutor, TabCompleter {
 
     public final Map<UUID, Boolean> playerHiddenState = new ConcurrentHashMap<>();
     private final Map<UUID, Long> refreshCooldowns = new ConcurrentHashMap<>();
     private final Set<UUID> internallyTeleporting = ConcurrentHashMap.newKeySet();
+    // Track chunks with fake deepslate blocks for each player
+    final Map<UUID, Set<String>> playerFakeChunks = new ConcurrentHashMap<>();
     private static YLevelHiderPlugin instance;
     private WrappedBlockState airState;
     private int airStateGlobalId = 0;
+    private WrappedBlockState deepslateState;
+    private int deepslateStateGlobalId = 0;
     private boolean debugMode = false;
     private int refreshCooldownMillis = 3000;
     private Set<String> whitelistedWorlds = new HashSet<>();
     private BukkitTask stateValidationTask;
     private int stateValidationIntervalSeconds = 10; // Configurable validation interval
+    private BukkitTask chunkUncoverTask; // Task for checking player look direction
+    private ChunkPacketListenerPE packetListener; // PacketEvents listener instance
+    private com.github.retrooper.packetevents.event.PacketListenerCommon registeredListener; // The registered listener reference
+    private FoliaLib foliaLib;
+    volatile boolean pluginDisabling = false; // Flag to track if plugin is being disabled
+    
+    // Enhanced anti-xray configuration
+    boolean hideEntitiesBelowY30 = true;
+    String fakeBlockMaterial = "DEEPSLATE";
+    int lookDetectionRange = 5;
+    int lookCheckIntervalTicks = 10;
 
     public static YLevelHiderPlugin getInstance() {
         return instance;
@@ -116,6 +127,35 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         this.stateValidationIntervalSeconds = validationSeconds;
         infoLog("State validation interval set to " + validationSeconds + " seconds (for Folia compatibility).");
+        
+        // Load enhanced anti-xray settings
+        this.hideEntitiesBelowY30 = config.getBoolean("hide-entities-below-y30", true);
+        if (!config.contains("hide-entities-below-y30")) {
+            config.set("hide-entities-below-y30", true);
+            saveConfig();
+        }
+        infoLog("Entity hiding below Y=30: " + (hideEntitiesBelowY30 ? "ENABLED" : "DISABLED"));
+        
+        this.fakeBlockMaterial = config.getString("fake-block-material", "DEEPSLATE");
+        if (!config.contains("fake-block-material")) {
+            config.set("fake-block-material", "DEEPSLATE");
+            saveConfig();
+        }
+        infoLog("Fake block material set to: " + fakeBlockMaterial);
+        
+        this.lookDetectionRange = config.getInt("look-detection-range", 5);
+        if (!config.contains("look-detection-range")) {
+            config.set("look-detection-range", 5);
+            saveConfig();
+        }
+        infoLog("Look detection range set to: " + lookDetectionRange + " blocks");
+        
+        this.lookCheckIntervalTicks = config.getInt("look-check-interval-ticks", 10);
+        if (!config.contains("look-check-interval-ticks")) {
+            config.set("look-check-interval-ticks", 10);
+            saveConfig();
+        }
+        infoLog("Look check interval set to: " + lookCheckIntervalTicks + " ticks (" + String.format("%.1f", lookCheckIntervalTicks / 20.0) + " seconds)");
     }
 
     public boolean isWorldWhitelisted(String worldName) {
@@ -134,6 +174,9 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        
+        // Load PacketEvents (don't call init() here because onLoad is executed before the plugin is enabled
+        // and PacketEvents may attempt to register Bukkit listeners which requires the plugin to be enabled)
         packetEventsAPI.load();
         if (!packetEventsAPI.isLoaded()) {
             getLogger().severe("[YLevelHider] PacketEvents API failed to load correctly after packetEventsAPI.load().");
@@ -149,12 +192,80 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         loadConfigValues();
 
         final PacketEventsAPI packetEventsAPI = PacketEvents.getAPI();
-        if (packetEventsAPI == null || !packetEventsAPI.isLoaded()) {
-            getLogger().severe("[YLevelHider] PacketEvents API not available or not loaded in onEnable. YLevelHider will not function.");
+        if (packetEventsAPI == null) {
+            getLogger().severe("[YLevelHider] PacketEvents.getAPI() returned null in onEnable. YLevelHider will not function.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        debugLog("PacketEvents API confirmed available and loaded in onEnable.");
+
+        // Ensure PacketEvents is loaded (defensive - load() was called in onLoad but some setups may differ)
+        if (!packetEventsAPI.isLoaded()) {
+            debugLog("PacketEvents API was not loaded yet in onEnable; attempting to load.");
+            try {
+                packetEventsAPI.load();
+            } catch (Throwable t) {
+                getLogger().severe("[YLevelHider] Failed to load PacketEvents API in onEnable: " + t.getMessage());
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
+            if (!packetEventsAPI.isLoaded()) {
+                getLogger().severe("[YLevelHider] PacketEvents API failed to load in onEnable.");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
+            }
+        }
+
+        // Initialize FoliaLib early so we can use its scheduler where available
+        try {
+            foliaLib = new FoliaLib(this);
+            debugLog("FoliaLib initialized in onEnable.");
+        } catch (Throwable t) {
+            foliaLib = null;
+            debugLog("FoliaLib not available in onEnable: " + t.getMessage());
+        }
+
+        // Initialize PacketEvents and register listeners on the next tick to ensure the plugin
+        // is fully enabled and avoid IllegalPluginAccessException or classloader/zip-closed errors.
+        if (foliaLib != null) {
+            foliaLib.getScheduler().runNextTick(wrappedTask -> {
+                try {
+                    if (!packetEventsAPI.isInitialized()) {
+                        packetEventsAPI.init();
+                        infoLog("PacketEvents API initialized successfully (deferred onEnable tick).");
+                    }
+
+                    // Configure settings and register PacketEvents listener.
+                    packetEventsAPI.getSettings().checkForUpdates(true);
+                    packetListener = new ChunkPacketListenerPE(this);
+                    registeredListener = packetEventsAPI.getEventManager().registerListener(packetListener, PacketListenerPriority.NORMAL);
+                    debugLog("ChunkPacketListenerPE registered (deferred onEnable tick).");
+                } catch (Throwable t) {
+                    getLogger().severe("[YLevelHider] Failed to initialize PacketEvents API or register listener on deferred tick: " + t.getMessage());
+                    if (debugMode) t.printStackTrace();
+                    foliaLib.getScheduler().runNextTick(innerTask -> getServer().getPluginManager().disablePlugin(this));
+                }
+            });
+        } else {
+            Bukkit.getScheduler().runTask(this, () -> {
+                try {
+                    if (!packetEventsAPI.isInitialized()) {
+                        packetEventsAPI.init();
+                        infoLog("PacketEvents API initialized successfully (deferred onEnable tick).");
+                    }
+
+                    // Configure settings and register PacketEvents listener.
+                    packetEventsAPI.getSettings().checkForUpdates(true);
+                    packetListener = new ChunkPacketListenerPE(this);
+                    registeredListener = packetEventsAPI.getEventManager().registerListener(packetListener, PacketListenerPriority.NORMAL);
+                    debugLog("ChunkPacketListenerPE registered (deferred onEnable tick).");
+                } catch (Throwable t) {
+                    getLogger().severe("[YLevelHider] Failed to initialize PacketEvents API or register listener on deferred tick: " + t.getMessage());
+                    if (debugMode) t.printStackTrace();
+                    Bukkit.getScheduler().runTask(this, () -> getServer().getPluginManager().disablePlugin(this));
+                }
+            });
+        }
+        debugLog("PacketEvents initialization deferred to next server tick to avoid early listener registration.");
 
         try {
             airState = WrappedBlockState.getByString("minecraft:air");
@@ -163,13 +274,22 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             }
             airStateGlobalId = airState.getGlobalId();
             debugLog("AIR block state initialized successfully. Global ID: " + airStateGlobalId);
+            
+            String materialName = "minecraft:" + fakeBlockMaterial.toLowerCase();
+            deepslateState = WrappedBlockState.getByString(materialName);
+            if (deepslateState == null) {
+                throw new IllegalStateException("WrappedBlockState.getByString(\"" + materialName + "\") returned null.");
+            }
+            deepslateStateGlobalId = deepslateState.getGlobalId();
+            debugLog(fakeBlockMaterial + " block state initialized successfully. Global ID: " + deepslateStateGlobalId);
         } catch (Exception e) {
-            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR: " + e.getMessage());
+            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR or " + fakeBlockMaterial + ": " + e.getMessage());
             airState = null;
+            deepslateState = null;
         }
 
-        if (airState == null) {
-            getLogger().severe("[YLevelHider] Could not initialize AIR block state. Disabling plugin.");
+        if (airState == null || deepslateState == null) {
+            getLogger().severe("[YLevelHider] Could not initialize AIR or " + fakeBlockMaterial + " block state. Disabling plugin.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -179,7 +299,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 .checkForUpdates(true);
         debugLog("PacketEvents settings configured.");
 
-        packetEventsAPI.getEventManager().registerListener(new ChunkPacketListenerPE(this), PacketListenerPriority.NORMAL);
+        packetListener = new ChunkPacketListenerPE(this);
+        registeredListener = packetEventsAPI.getEventManager().registerListener(packetListener, PacketListenerPriority.NORMAL);
         debugLog("ChunkPacketListenerPE registered.");
         Bukkit.getServer().getPluginManager().registerEvents(this, this);
         debugLog("Bukkit PlayerListeners (this class) registered.");
@@ -189,18 +310,6 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         this.getCommand("ylevelhiderworld").setExecutor(this);
         this.getCommand("ylevelhiderworld").setTabCompleter(this);
         debugLog("Commands registered.");
-
-
-        FoliaScheduler.runTask(this, () -> {
-            if (this.isEnabled() && packetEventsAPI.isLoaded()) {
-                packetEventsAPI.init();
-                infoLog("PacketEvents.init() called via scheduler.");
-            } else if (!this.isEnabled()){
-                getLogger().warning("[YLevelHider] Plugin was disabled before PacketEvents.init() could be called via scheduler.");
-            } else {
-                getLogger().warning("[YLevelHider] PacketEvents API was not loaded when scheduled init task ran.");
-            }
-        });
 
 
         try {
@@ -225,11 +334,17 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         
         // Start periodic state validation task for Folia compatibility
         startStateValidationTask();
+        
+        // Start chunk uncovering task for look detection
+        startChunkUncoverTask();
     }
 
     @Override
     public void onDisable() {
         infoLog("onDisable() called.");
+        
+        // Set the flag to indicate plugin is being disabled
+        pluginDisabling = true;
         
         // Cancel the state validation task
         if (stateValidationTask != null) {
@@ -237,11 +352,35 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             stateValidationTask = null;
         }
         
-        if (PacketEvents.getAPI() != null && PacketEvents.getAPI().isLoaded()) {
-            PacketEvents.getAPI().terminate();
-            debugLog("PacketEvents API terminated.");
+        // Cancel the chunk uncovering task
+        if (chunkUncoverTask != null) {
+            chunkUncoverTask.cancel();
+            chunkUncoverTask = null;
+        }
+
+        // If FoliaLib was used for scheduling, cancel all FoliaLib tasks
+        if (foliaLib != null) {
+            try {
+                foliaLib.getScheduler().cancelAllTasks();
+            } catch (Throwable t) {
+                getLogger().warning("[YLevelHider] Failed to cancel FoliaLib tasks: " + t.getMessage());
+            }
+        }
+        
+        // Unregister the packet listener to prevent classloader issues
+        if (registeredListener != null && PacketEvents.getAPI() != null && PacketEvents.getAPI().isLoaded()) {
+            try {
+                PacketEvents.getAPI().getEventManager().unregisterListener(registeredListener);
+                debugLog("ChunkPacketListenerPE unregistered.");
+                registeredListener = null;
+                packetListener = null;
+            } catch (Exception e) {
+                // If unregistering fails, log it but don't throw
+                getLogger().warning("[YLevelHider] Failed to unregister packet listener: " + e.getMessage());
+            }
         }
         playerHiddenState.clear();
+        playerFakeChunks.clear();
         getLogger().info(getName() + " has been disabled.");
     }
 
@@ -264,9 +403,11 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 if (sender instanceof Player) {
                     Player player = (Player) sender;
                     sender.sendMessage(ChatColor.BLUE + "[YLevelHider] Testing scheduler compatibility...");
-                    FoliaScheduler.runTask(this, player, () -> {
-                        player.sendMessage(ChatColor.GREEN + "[YLevelHider] Scheduler test successful!");
-                    });
+                    if (foliaLib != null) {
+                        foliaLib.getScheduler().runAtEntity(player, wrappedTask -> player.sendMessage(ChatColor.GREEN + "[YLevelHider] Scheduler test successful!"));
+                    } else {
+                        Bukkit.getScheduler().runTask(this, () -> player.sendMessage(ChatColor.GREEN + "[YLevelHider] Scheduler test successful!"));
+                    }
                 }
                 return true;
 
@@ -437,12 +578,16 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         if (!Bukkit.isPrimaryThread()) {
             final int finalRadius = radiusChunks;
             debugLog("Not on main thread. Scheduling performRefresh for " + player.getName() + " with radius " + finalRadius);
-            FoliaScheduler.runTask(this, player, () -> performRefresh(player, finalRadius));
+            if (foliaLib != null) {
+                foliaLib.getScheduler().runAtEntity(player, wrappedTask -> performRefresh(player, finalRadius));
+            } else {
+                Bukkit.getScheduler().runTask(this, () -> performRefresh(player, finalRadius));
+            }
             return;
         }
 
         World world = player.getWorld();
-        Location loc = player.getLocation();
+        org.bukkit.Location loc = player.getLocation();
         int playerChunkX = loc.getBlockX() >> 4;
         int playerChunkZ = loc.getBlockZ() >> 4;
         int refreshedCount = 0;
@@ -472,6 +617,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         infoLog("onPlayerQuit CALLED for: " + player.getName());
         refreshCooldowns.remove(player.getUniqueId());
         playerHiddenState.remove(player.getUniqueId());
+        playerFakeChunks.remove(player.getUniqueId());
     }
 
     @EventHandler
@@ -504,7 +650,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
 
         Player player = event.getPlayer();
-        Location to = event.getTo();
+        org.bukkit.Location to = event.getTo();
 
         if (to == null) return;
 
@@ -521,12 +667,21 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             // Handle teleporting OUT of a whitelisted world.
             if (fromWorldIsWhitelisted && playerHiddenState.remove(player.getUniqueId()) != null) {
                 // Schedule the refresh for after the teleport is complete.
-                FoliaScheduler.runTask(this, player, () -> {
-                    if (player.isOnline()) {
-                        debugLog("Player " + player.getName() + " teleported out of a whitelisted world. Refreshing view.");
-                        refreshFullView(player);
-                    }
-                });
+                if (foliaLib != null) {
+                    foliaLib.getScheduler().runAtEntity(player, wrappedTask -> {
+                        if (player.isOnline()) {
+                            debugLog("Player " + player.getName() + " teleported out of a whitelisted world. Refreshing view.");
+                            refreshFullView(player);
+                        }
+                    });
+                } else {
+                    Bukkit.getScheduler().runTask(this, () -> {
+                        if (player.isOnline()) {
+                            debugLog("Player " + player.getName() + " teleported out of a whitelisted world. Refreshing view.");
+                            refreshFullView(player);
+                        }
+                    });
+                }
             }
             return;
         }
@@ -549,15 +704,27 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             playerHiddenState.put(playerUUID, false); // Update state immediately
             event.setCancelled(true); // Cancel original event
             // Schedule a new teleport for the next tick. By then, the state is correct, and packets will be generated properly.
-            FoliaScheduler.runTask(this, player, () -> {
-                if (!player.isOnline()) return;
-                internallyTeleporting.add(playerUUID);
-                try {
-                    player.teleport(to);
-                } finally {
-                    internallyTeleporting.remove(playerUUID);
-                }
-            });
+            if (foliaLib != null) {
+                foliaLib.getScheduler().runAtEntity(player, wrappedTask -> {
+                    if (!player.isOnline()) return;
+                    internallyTeleporting.add(playerUUID);
+                    try {
+                        player.teleportAsync(to);
+                    } finally {
+                        internallyTeleporting.remove(playerUUID);
+                    }
+                });
+            } else {
+                Bukkit.getScheduler().runTask(this, () -> {
+                    if (!player.isOnline()) return;
+                    internallyTeleporting.add(playerUUID);
+                    try {
+                        player.teleport(to);
+                    } finally {
+                        internallyTeleporting.remove(playerUUID);
+                    }
+                });
+            }
         } else { // Transitioning TO a hiding state (Visible -> Hiding)
             debugLog("Player " + player.getName() + " teleporting to a HIDING state. Updating state immediately.");
             playerHiddenState.put(playerUUID, true);
@@ -583,8 +750,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
 
         debugLog("onPlayerMove in whitelisted world " + player.getWorld().getName() + " for " + player.getName());
 
-        Location to = event.getTo();
-        Location from = event.getFrom();
+        org.bukkit.Location to = event.getTo();
+        org.bukkit.Location from = event.getFrom();
 
         if (to == null) {
             debugLog("onPlayerMove: 'to' location is null. Skipping.");
@@ -652,8 +819,16 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + ". Refresh skipped due to active cooldown.");
             } else {
                 // Cooldown has expired, perform a refresh and set a new cooldown.
-                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + ". Refreshing full view at Y=" + String.format("%.2f", currentY) + " and starting cooldown.");
-                this.refreshFullView(player);
+                debugLog("State changed for " + player.getName() + ". New hidden state: " + newStateIsHidden + ". Refreshing view at Y=" + String.format("%.2f", currentY) + " and starting cooldown.");
+                // If we're transitioning from HIDING -> VISIBLE, only refresh a small 3x3 area
+                // (radiusChunks = 1). This prevents a full view-distance refresh which reveals
+                // too many chunks at once. Otherwise, keep the full refresh behavior.
+                if (oldStateIsHidden && !newStateIsHidden) {
+                    debugLog("Transition HIDING->VISIBLE for " + player.getName() + ", performing 3x3 refresh (radius=1).");
+                    performRefresh(player, 1);
+                } else {
+                    this.refreshFullView(player);
+                }
                 refreshCooldowns.put(playerUUID, currentTime + refreshCooldownMillis);
             }
         } else {
@@ -668,18 +843,66 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     private void startStateValidationTask() {
         long intervalTicks = stateValidationIntervalSeconds * 20L; // Convert seconds to ticks
         // Run validation task periodically to check for state inconsistencies
-        stateValidationTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
-            try {
-                validatePlayerStates();
-            } catch (Exception e) {
-                getLogger().warning("[YLevelHider] Error in state validation task: " + e.getMessage());
-                if (debugMode) {
-                    e.printStackTrace();
+        if (foliaLib != null) {
+            foliaLib.getScheduler().runTimer(() -> {
+                try {
+                    validatePlayerStates();
+                } catch (Exception e) {
+                    getLogger().warning("[YLevelHider] Error in state validation task: " + e.getMessage());
+                    if (debugMode) {
+                        e.printStackTrace();
+                    }
                 }
-            }
-        }, intervalTicks, intervalTicks); // Start after interval, repeat every interval
+            }, intervalTicks, intervalTicks);
+            stateValidationTask = null;
+        } else {
+            stateValidationTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+                try {
+                    validatePlayerStates();
+                } catch (Exception e) {
+                    getLogger().warning("[YLevelHider] Error in state validation task: " + e.getMessage());
+                    if (debugMode) {
+                        e.printStackTrace();
+                    }
+                }
+            }, intervalTicks, intervalTicks); // Start after interval, repeat every interval
+        }
         
         debugLog("State validation task started with " + stateValidationIntervalSeconds + " second interval for Folia compatibility.");
+    }
+
+    /**
+     * Starts a task to check if players are looking at fake deepslate blocks.
+     * When detected, uncovers the relevant chunks.
+     */
+    private void startChunkUncoverTask() {
+        long intervalTicks = lookCheckIntervalTicks;
+        if (foliaLib != null) {
+            foliaLib.getScheduler().runTimer(() -> {
+                try {
+                    checkPlayerLookingAtFakeBlocks();
+                } catch (Exception e) {
+                    getLogger().warning("[YLevelHider] Error in chunk uncover task: " + e.getMessage());
+                    if (debugMode) {
+                        e.printStackTrace();
+                    }
+                }
+            }, intervalTicks, intervalTicks);
+            chunkUncoverTask = null;
+        } else {
+            chunkUncoverTask = Bukkit.getScheduler().runTaskTimer(this, () -> {
+                try {
+                    checkPlayerLookingAtFakeBlocks();
+                } catch (Exception e) {
+                    getLogger().warning("[YLevelHider] Error in chunk uncover task: " + e.getMessage());
+                    if (debugMode) {
+                        e.printStackTrace();
+                    }
+                }
+            }, intervalTicks, intervalTicks);
+        }
+        
+        debugLog("Chunk uncovering task started with " + lookCheckIntervalTicks + " tick intervals (" + String.format("%.1f", lookCheckIntervalTicks / 20.0) + " seconds).");
     }
 
     /**
@@ -722,6 +945,58 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
     }
 
+    /**
+     * Checks if players are looking at fake deepslate blocks and uncovers chunks if needed.
+     * Uses simple raycasting to detect what block the player is looking at.
+     */
+    private void checkPlayerLookingAtFakeBlocks() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!isWorldWhitelisted(player.getWorld().getName())) {
+                continue;
+            }
+            
+            UUID playerUUID = player.getUniqueId();
+            boolean isHidden = playerHiddenState.getOrDefault(playerUUID, false);
+            
+            if (!isHidden) {
+                continue; // Player not in hidden state, no need to check
+            }
+            
+            Set<String> fakeChunks = playerFakeChunks.get(playerUUID);
+            if (fakeChunks == null || fakeChunks.isEmpty()) {
+                continue; // No fake chunks to check
+            }
+            
+            try {
+                // Perform raycast to see what block the player is looking at
+                org.bukkit.block.Block targetBlock = player.getTargetBlockExact(lookDetectionRange);
+                
+                // Check if looking at the configured fake block material
+                if (targetBlock != null && targetBlock.getType() == org.bukkit.Material.valueOf(fakeBlockMaterial)) {
+                    int chunkX = targetBlock.getX() >> 4;
+                    int chunkZ = targetBlock.getZ() >> 4;
+                    String chunkKey = chunkX + "," + chunkZ;
+                    
+                    // Check if this chunk contains fake blocks
+                    if (fakeChunks.contains(chunkKey) && targetBlock.getY() <= 16) {
+                        debugLog("Player " + player.getName() + " looking at fake " + fakeBlockMaterial + " at " + 
+                                targetBlock.getX() + "," + targetBlock.getY() + "," + targetBlock.getZ() + 
+                                " in chunk " + chunkKey + ". Uncovering chunk.");
+                        
+                        // Remove from fake chunks and refresh the chunk
+                        fakeChunks.remove(chunkKey);
+                        
+                        // Refresh this specific chunk for the player
+                        World world = player.getWorld();
+                        world.refreshChunk(chunkX, chunkZ);
+                    }
+                }
+            } catch (Exception e) {
+                debugLog("Error checking player look direction for " + player.getName() + ": " + e.getMessage());
+            }
+        }
+    }
+
     @EventHandler
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
@@ -756,6 +1031,14 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         return airStateGlobalId;
     }
 
+    public WrappedBlockState getDeepslateState() {
+        return deepslateState;
+    }
+
+    public int getDeepslateStateGlobalId() {
+        return deepslateStateGlobalId;
+    }
+
     public boolean isDebugMode() {
         return debugMode;
     }
@@ -777,44 +1060,85 @@ class ChunkPacketListenerPE implements PacketListener {
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        listenerDebugLog("onPacketSend CALLED. PacketType: " + event.getPacketType().getName());
-
-        User user = event.getUser();
-        if (user == null) {
-            listenerDebugLog("User object is null in onPacketSend. Skipping.");
+        // Early return if plugin is being disabled to prevent classloader issues
+        if (plugin.pluginDisabling) {
             return;
         }
+        
+        try {
+            // Safely get packet type name to avoid classloader issues
+            String packetTypeName;
+            try {
+                packetTypeName = event.getPacketType().getName();
+            } catch (Throwable t) {
+                // Fallback if classloader is closed or other issues occur
+                packetTypeName = "UNKNOWN_PACKET_TYPE";
+            }
+            
+            listenerDebugLog("onPacketSend CALLED. PacketType: " + packetTypeName);
 
-        UUID userUUID = user.getUUID();
-        if (userUUID == null) {
-            return;
-        }
+            User user = event.getUser();
+            if (user == null) {
+                listenerDebugLog("User object is null in onPacketSend. Skipping.");
+                return;
+            }
 
-        Player player = Bukkit.getPlayer(userUUID);
-        if (player == null || !player.isOnline()) {
-            listenerDebugLog("Bukkit.getPlayer(uuid) returned null or player offline for packet type: " + event.getPacketType().getName());
-            return;
-        }
+            UUID userUUID = user.getUUID();
+            if (userUUID == null) {
+                return;
+            }
 
-        // Add a null-check for the player's world to prevent errors during world change/login.
-        World playerWorld = player.getWorld();
-        if (playerWorld == null || !plugin.isWorldWhitelisted(playerWorld.getName())) {
-            return;
-        }
+            Player player = Bukkit.getPlayer(userUUID);
+            if (player == null || !player.isOnline()) {
+                listenerDebugLog("Bukkit.getPlayer(uuid) returned null or player offline for packet type: " + packetTypeName);
+                return;
+            }
 
-        listenerDebugLog("Processing packet for " + player.getName() + " in whitelisted world " + player.getWorld().getName() + ". PacketType: " + event.getPacketType().getName());
+            // Add a null-check for the player's world to prevent errors during world change/login.
+            World playerWorld = player.getWorld();
+            if (playerWorld == null || !plugin.isWorldWhitelisted(playerWorld.getName())) {
+                return;
+            }
 
-        // Handle CHUNK_DATA
-        if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
-            handleChunkDataPacket(event, player);
-        }
-        // Handle BLOCK_CHANGE
-        else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
-            handleBlockChangePacket(event, player);
-        }
-        // Handle MULTI_BLOCK_CHANGE
-        else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
-            handleMultiBlockChangePacket(event, player);
+            listenerDebugLog("Processing packet for " + player.getName() + " in whitelisted world " + player.getWorld().getName() + ". PacketType: " + packetTypeName);
+
+            // Handle CHUNK_DATA
+            if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
+                handleChunkDataPacket(event, player);
+            }
+            // Handle BLOCK_CHANGE
+            else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
+                handleBlockChangePacket(event, player);
+            }
+            // Handle MULTI_BLOCK_CHANGE
+            else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
+                handleMultiBlockChangePacket(event, player);
+            }
+            // Handle ENTITY_SPAWN (for non-living entities like armor stands)
+            else if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
+                handleEntitySpawnPacket(event, player);
+            }
+            // Handle SPAWN_LIVING_ENTITY
+            else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
+                handleLivingEntitySpawnPacket(event, player);
+            }
+        } catch (Throwable t) {
+            // Catch any unexpected errors to prevent them from bubbling up to PacketEvents
+            // This prevents the zip file closed error and other classloader issues
+            try {
+                plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                if (plugin.isDebugMode()) {
+                    t.printStackTrace();
+                }
+            } catch (Throwable logError) {
+                // If even logging fails due to classloader issues, try the most basic logging
+                try {
+                    plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend (error details unavailable due to classloader issues)");
+                } catch (Throwable finalError) {
+                    // Last resort - do nothing to avoid infinite error loops
+                    // The plugin is likely being unloaded/reloaded
+                }
+            }
         }
     }
 
@@ -824,9 +1148,9 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Player: " + player.getName() + ", shouldHide: " + shouldHide + " (from playerHiddenState: " + plugin.playerHiddenState.get(player.getUniqueId()) + ")");
 
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) {
-                plugin.getLogger().warning("[YLevelHider][PacketListener] AIR block state is not available. Cannot modify chunk for " + player.getName());
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) {
+                plugin.getLogger().warning("[YLevelHider][PacketListener] " + plugin.fakeBlockMaterial + " block state is not available. Cannot modify chunk for " + player.getName());
                 return;
             }
             listenerDebugLog("Proceeding to modify CHUNK_DATA for " + player.getName());
@@ -869,6 +1193,10 @@ class ChunkPacketListenerPE implements PacketListener {
             }
             int worldMinY = world.getMinHeight();
             boolean modified = false;
+            
+            // Track chunk coordinates for fake deepslate
+            String chunkKey = column.getX() + "," + column.getZ();
+            UUID playerUUID = player.getUniqueId();
 
             for (int sectionIndex = 0; sectionIndex < chunkSections.length; sectionIndex++) {
                 BaseChunk section = chunkSections[sectionIndex];
@@ -883,10 +1211,10 @@ class ChunkPacketListenerPE implements PacketListener {
                             for (int relZ = 0; relZ < 16; relZ++) {
                                 try {
                                     WrappedBlockState currentState = section.get(relX, yInSection, relZ);
-                                    if (currentState != null && !currentState.equals(air)) {
+                                    if (currentState != null && !currentState.equals(deepslate)) {
                                         listenerDebugLog("CHUNK_DATA: Changing block at [" + relX + "," + yInSection + "," + relZ + "] in section " + sectionIndex +
-                                                " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to AIR for player " + player.getName());
-                                        section.set(relX, yInSection, relZ, air);
+                                                " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to " + plugin.fakeBlockMaterial + " for player " + player.getName());
+                                        section.set(relX, yInSection, relZ, deepslate);
                                         modified = true;
                                     }
                                 } catch (Exception e) {
@@ -905,8 +1233,12 @@ class ChunkPacketListenerPE implements PacketListener {
                 } catch (Exception e) {
                     plugin.getLogger().warning("[YLevelHider][PacketListener] Failed to set ignoreOldData on WrapperPlayServerChunkData: " + e.getMessage());
                 }
+                
+                // Track this chunk as having fake deepslate blocks
+                plugin.playerFakeChunks.computeIfAbsent(playerUUID, k -> ConcurrentHashMap.newKeySet()).add(chunkKey);
+                
                 event.markForReEncode(true);
-                listenerDebugLog("CHUNK_DATA for " + player.getName() + " was modified to hide blocks at Y<=16 and marked for re-encode.");
+                listenerDebugLog("CHUNK_DATA for " + player.getName() + " was modified to hide blocks at Y<=16 with " + plugin.fakeBlockMaterial + " and marked for re-encode.");
             } else {
                 listenerDebugLog("CHUNK_DATA for " + player.getName() + " processed, but no blocks were modified (shouldHide=" + shouldHide + ").");
             }
@@ -919,17 +1251,17 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Intercepted BLOCK_CHANGE packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) return;
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) return;
 
             WrapperPlayServerBlockChange wrapper = new WrapperPlayServerBlockChange(event);
             Vector3i blockPos = wrapper.getBlockPosition();
 
             if (blockPos != null && blockPos.getY() <= 16) {
                 WrappedBlockState currentState = wrapper.getBlockState();
-                if (currentState != null && !currentState.equals(air)) {
-                    listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to AIR for " + player.getName());
-                    wrapper.setBlockState(air);
+                if (currentState != null && !currentState.equals(deepslate)) {
+                    listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to " + plugin.fakeBlockMaterial + " for " + player.getName());
+                    wrapper.setBlockState(deepslate);
                     event.markForReEncode(true);
                 }
             }
@@ -940,8 +1272,8 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Intercepted MULTI_BLOCK_CHANGE packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) return;
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) return;
 
             WrapperPlayServerMultiBlockChange wrapper = new WrapperPlayServerMultiBlockChange(event);
             boolean modifiedInPacket = false;
@@ -962,11 +1294,11 @@ class ChunkPacketListenerPE implements PacketListener {
                 int currentBlockId = record.getBlockId();
 
                 if (currentWorldY <= 16) {
-                    int airId = plugin.getAirStateGlobalId();
-                    if (currentBlockId != airId) {
-                        listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to AIR for " + player.getName());
+                    int deepslateId = plugin.getDeepslateStateGlobalId();
+                    if (currentBlockId != deepslateId) {
+                        listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to " + plugin.fakeBlockMaterial + " for " + player.getName());
                         try {
-                            record.setBlockId(airId);
+                            record.setBlockId(deepslateId);
                             modifiedInPacket = true;
                         } catch (Exception e) {
                             listenerDebugLog("MULTI_BLOCK_CHANGE: Failed to setBlockId on EncodedBlock record. Error: " + e.getMessage());
@@ -978,6 +1310,42 @@ class ChunkPacketListenerPE implements PacketListener {
             if (modifiedInPacket) {
                 event.markForReEncode(true);
                 listenerDebugLog("MULTI_BLOCK_CHANGE for " + player.getName() + " was modified and marked for re-encode.");
+            }
+        }
+    }
+
+    private void handleEntitySpawnPacket(PacketSendEvent event, Player player) {
+        listenerDebugLog("Intercepted SPAWN_ENTITY packet for " + player.getName());
+        boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
+        if (shouldHide && plugin.hideEntitiesBelowY30) {
+            try {
+                WrapperPlayServerSpawnEntity wrapper = new WrapperPlayServerSpawnEntity(event);
+                Vector3d entityPos = wrapper.getPosition();
+                
+                if (entityPos != null && entityPos.getY() <= 30.0) {
+                    listenerDebugLog("SPAWN_ENTITY: Cancelling entity spawn at Y=" + String.format("%.2f", entityPos.getY()) + " for " + player.getName());
+                    event.setCancelled(true);
+                }
+            } catch (Exception e) {
+                listenerDebugLog("Error handling SPAWN_ENTITY packet: " + e.getMessage());
+            }
+        }
+    }
+
+    private void handleLivingEntitySpawnPacket(PacketSendEvent event, Player player) {
+        listenerDebugLog("Intercepted SPAWN_LIVING_ENTITY packet for " + player.getName());
+        boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
+        if (shouldHide && plugin.hideEntitiesBelowY30) {
+            try {
+                WrapperPlayServerSpawnLivingEntity wrapper = new WrapperPlayServerSpawnLivingEntity(event);
+                Vector3d entityPos = wrapper.getPosition();
+                
+                if (entityPos != null && entityPos.getY() <= 30.0) {
+                    listenerDebugLog("SPAWN_LIVING_ENTITY: Cancelling living entity spawn at Y=" + String.format("%.2f", entityPos.getY()) + " for " + player.getName());
+                    event.setCancelled(true);
+                }
+            } catch (Exception e) {
+                listenerDebugLog("Error handling SPAWN_LIVING_ENTITY packet: " + e.getMessage());
             }
         }
     }
