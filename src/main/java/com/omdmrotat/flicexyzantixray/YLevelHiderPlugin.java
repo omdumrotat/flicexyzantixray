@@ -79,6 +79,9 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     private BukkitTask stateValidationTask;
     private int stateValidationIntervalSeconds = 10; // Configurable validation interval
     private BukkitTask chunkUncoverTask; // Task for checking player look direction
+    private ChunkPacketListenerPE packetListener; // PacketEvents listener instance
+    private com.github.retrooper.packetevents.event.PacketListenerCommon registeredListener; // The registered listener reference
+    volatile boolean pluginDisabling = false; // Flag to track if plugin is being disabled
     
     // Enhanced anti-xray configuration
     boolean hideEntitiesBelowY30 = true;
@@ -232,7 +235,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 .checkForUpdates(true);
         debugLog("PacketEvents settings configured.");
 
-        packetEventsAPI.getEventManager().registerListener(new ChunkPacketListenerPE(this), PacketListenerPriority.NORMAL);
+        packetListener = new ChunkPacketListenerPE(this);
+        registeredListener = packetEventsAPI.getEventManager().registerListener(packetListener, PacketListenerPriority.NORMAL);
         debugLog("ChunkPacketListenerPE registered.");
         Bukkit.getServer().getPluginManager().registerEvents(this, this);
         debugLog("Bukkit PlayerListeners (this class) registered.");
@@ -287,6 +291,9 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     public void onDisable() {
         infoLog("onDisable() called.");
         
+        // Set the flag to indicate plugin is being disabled
+        pluginDisabling = true;
+        
         // Cancel the state validation task
         if (stateValidationTask != null) {
             stateValidationTask.cancel();
@@ -299,9 +306,17 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             chunkUncoverTask = null;
         }
         
-        if (PacketEvents.getAPI() != null && PacketEvents.getAPI().isLoaded()) {
-            PacketEvents.getAPI().terminate();
-            debugLog("PacketEvents API terminated.");
+        // Unregister the packet listener to prevent classloader issues
+        if (registeredListener != null && PacketEvents.getAPI() != null && PacketEvents.getAPI().isLoaded()) {
+            try {
+                PacketEvents.getAPI().getEventManager().unregisterListener(registeredListener);
+                debugLog("ChunkPacketListenerPE unregistered.");
+                registeredListener = null;
+                packetListener = null;
+            } catch (Exception e) {
+                // If unregistering fails, log it but don't throw
+                getLogger().warning("[YLevelHider] Failed to unregister packet listener: " + e.getMessage());
+            }
         }
         playerHiddenState.clear();
         playerFakeChunks.clear();
@@ -921,6 +936,11 @@ class ChunkPacketListenerPE implements PacketListener {
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
+        // Early return if plugin is being disabled to prevent classloader issues
+        if (plugin.pluginDisabling) {
+            return;
+        }
+        
         try {
             // Safely get packet type name to avoid classloader issues
             String packetTypeName;
@@ -981,9 +1001,19 @@ class ChunkPacketListenerPE implements PacketListener {
         } catch (Throwable t) {
             // Catch any unexpected errors to prevent them from bubbling up to PacketEvents
             // This prevents the zip file closed error and other classloader issues
-            plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend: " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            if (plugin.isDebugMode()) {
-                t.printStackTrace();
+            try {
+                plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                if (plugin.isDebugMode()) {
+                    t.printStackTrace();
+                }
+            } catch (Throwable logError) {
+                // If even logging fails due to classloader issues, try the most basic logging
+                try {
+                    plugin.getLogger().warning("[YLevelHider][PacketListener] Caught unexpected error in onPacketSend (error details unavailable due to classloader issues)");
+                } catch (Throwable finalError) {
+                    // Last resort - do nothing to avoid infinite error loops
+                    // The plugin is likely being unloaded/reloaded
+                }
             }
         }
     }
