@@ -35,3 +35,18 @@ refresh-cooldown-seconds: 3
 # missed events in Folia's async environment. Lower values provide better
 # responsiveness but use more server resources.
 state-validation-interval-seconds: 10
+
+# ===== 3x3 VIEW BOX FEATURE =====
+# Enable the new 3x3 view box feature (replaces old Y-level hiding)
+view-box-enabled: true
+
+# Y level threshold - players at or below this Y level will have the view box active
+# This inverts the original logic: now hiding occurs when player is LOW (underground)
+view-box-y-threshold: 30
+
+# Size of the view box around the player (3 = 3x3, 5 = 5x5, etc.)
+# Only odd numbers are recommended for symmetric view box
+view-box-size: 3
+
+# Whether to hide entities (armor stands, item frames, etc.) in hidden areas
+hide-entities: true

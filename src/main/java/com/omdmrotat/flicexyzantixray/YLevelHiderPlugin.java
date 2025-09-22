@@ -17,7 +17,13 @@ import com.github.retrooper.packetevents.wrapper.PacketWrapper; // Generic wrapp
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange; // Import for BlockChange
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange; // Import for MultiBlockChange
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnLivingEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityTeleport;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMove;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMoveAndRotation;
 import com.github.retrooper.packetevents.util.Vector3i; // Import for Vector3i
+import com.github.retrooper.packetevents.util.Vector3d;
 
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 
@@ -64,12 +70,24 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     private final Set<UUID> internallyTeleporting = ConcurrentHashMap.newKeySet();
     private static YLevelHiderPlugin instance;
     private WrappedBlockState airState;
+    private WrappedBlockState deepslateState;
     private int airStateGlobalId = 0;
+    private int deepslateStateGlobalId = 0;
     private boolean debugMode = false;
     private int refreshCooldownMillis = 3000;
     private Set<String> whitelistedWorlds = new HashSet<>();
     private BukkitTask stateValidationTask;
     private int stateValidationIntervalSeconds = 10; // Configurable validation interval
+    
+    // New 3x3 view box feature settings
+    private boolean viewBoxEnabled = true;
+    private int viewBoxYThreshold = 30; // Y level threshold for enabling view box
+    private int viewBoxSize = 3; // Size of the view box (3x3)
+    private boolean hideEntities = true; // Whether to hide entities in hidden areas
+    
+    // Player view box states and last known look directions
+    private final Map<UUID, Location> playerLookPositions = new ConcurrentHashMap<>();
+    private final Map<UUID, Location> playerViewBoxCenters = new ConcurrentHashMap<>();
 
     public static YLevelHiderPlugin getInstance() {
         return instance;
@@ -116,6 +134,32 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         this.stateValidationIntervalSeconds = validationSeconds;
         infoLog("State validation interval set to " + validationSeconds + " seconds (for Folia compatibility).");
+        
+        // Load 3x3 view box configuration
+        this.viewBoxEnabled = config.getBoolean("view-box-enabled", true);
+        this.viewBoxYThreshold = config.getInt("view-box-y-threshold", 30);
+        this.viewBoxSize = config.getInt("view-box-size", 3);
+        this.hideEntities = config.getBoolean("hide-entities", true);
+        
+        if (!config.contains("view-box-enabled")) {
+            config.set("view-box-enabled", this.viewBoxEnabled);
+        }
+        if (!config.contains("view-box-y-threshold")) {
+            config.set("view-box-y-threshold", this.viewBoxYThreshold);
+        }
+        if (!config.contains("view-box-size")) {
+            config.set("view-box-size", this.viewBoxSize);
+        }
+        if (!config.contains("hide-entities")) {
+            config.set("hide-entities", this.hideEntities);
+        }
+        
+        saveConfig();
+        
+        infoLog("View box feature enabled: " + this.viewBoxEnabled);
+        infoLog("View box Y threshold: " + this.viewBoxYThreshold);
+        infoLog("View box size: " + this.viewBoxSize + "x" + this.viewBoxSize);
+        infoLog("Hide entities: " + this.hideEntities);
     }
 
     public boolean isWorldWhitelisted(String worldName) {
@@ -163,13 +207,21 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             }
             airStateGlobalId = airState.getGlobalId();
             debugLog("AIR block state initialized successfully. Global ID: " + airStateGlobalId);
+            
+            deepslateState = WrappedBlockState.getByString("minecraft:deepslate");
+            if (deepslateState == null) {
+                throw new IllegalStateException("WrappedBlockState.getByString(\"minecraft:deepslate\") returned null.");
+            }
+            deepslateStateGlobalId = deepslateState.getGlobalId();
+            debugLog("DEEPSLATE block state initialized successfully. Global ID: " + deepslateStateGlobalId);
         } catch (Exception e) {
-            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR: " + e.getMessage());
+            getLogger().severe("[YLevelHider] Failed to get WrappedBlockState for AIR or DEEPSLATE: " + e.getMessage());
             airState = null;
+            deepslateState = null;
         }
 
-        if (airState == null) {
-            getLogger().severe("[YLevelHider] Could not initialize AIR block state. Disabling plugin.");
+        if (airState == null || deepslateState == null) {
+            getLogger().severe("[YLevelHider] Could not initialize AIR or DEEPSLATE block state. Disabling plugin.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -392,7 +444,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         }
         debugLog("handlePlayerInitialState for " + player.getName() + " in whitelisted world " + player.getWorld().getName() + (immediateRefresh ? " (immediate refresh)" : " (delayed refresh allowed)"));
         double currentY = player.getLocation().getY();
-        boolean initialStateIsHidden = currentY >= 31.0;
+        boolean initialStateIsHidden = currentY <= viewBoxYThreshold;
         playerHiddenState.put(player.getUniqueId(), initialStateIsHidden);
         debugLog("Player " + player.getName() + " at Y=" + String.format("%.2f", currentY) + ". Initial hidden state: " + initialStateIsHidden);
 
@@ -534,8 +586,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         UUID playerUUID = player.getUniqueId();
         double destY = to.getY();
 
-        boolean oldStateIsHidden = playerHiddenState.getOrDefault(playerUUID, destY >= 31.0);
-        boolean newStateIsHidden = destY >= 31.0;
+        boolean oldStateIsHidden = playerHiddenState.getOrDefault(playerUUID, destY <= viewBoxYThreshold);
+        boolean newStateIsHidden = destY <= viewBoxYThreshold;
 
         if (oldStateIsHidden == newStateIsHidden) {
             // Even if no state change, ensure state is correctly recorded for Folia reliability
@@ -599,7 +651,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             // Handle this as a potential missed teleport
             UUID playerUUID = player.getUniqueId();
             double destY = to.getY();
-            boolean expectedHiddenState = destY >= 31.0;
+            boolean expectedHiddenState = destY <= viewBoxYThreshold;
             boolean currentHiddenState = playerHiddenState.getOrDefault(playerUUID, expectedHiddenState);
             
             if (currentHiddenState != expectedHiddenState) {
@@ -626,12 +678,12 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         double currentY = to.getY();
         UUID playerUUID = player.getUniqueId();
 
-        boolean oldStateIsHidden = this.playerHiddenState.getOrDefault(playerUUID, currentY >= 31.0);
+        boolean oldStateIsHidden = this.playerHiddenState.getOrDefault(playerUUID, currentY <= viewBoxYThreshold);
         boolean newStateIsHidden;
 
-        if (currentY >= 31.0) {
+        if (currentY <= viewBoxYThreshold) {
             newStateIsHidden = true;
-        } else if (currentY <= 30.0) {
+        } else if (currentY > viewBoxYThreshold) {
             newStateIsHidden = false;
         } else {
             newStateIsHidden = oldStateIsHidden;
@@ -698,7 +750,7 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             }
 
             double currentY = player.getLocation().getY();
-            boolean expectedHiddenState = currentY >= 31.0;
+            boolean expectedHiddenState = currentY <= viewBoxYThreshold;
             Boolean currentHiddenState = playerHiddenState.get(player.getUniqueId());
 
             if (currentHiddenState == null || currentHiddenState != expectedHiddenState) {
@@ -752,12 +804,102 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         return airState;
     }
 
+    public WrappedBlockState getDeepslateState() {
+        return deepslateState;
+    }
+
     public int getAirStateGlobalId() {
         return airStateGlobalId;
     }
 
+    public int getDeepslateStateGlobalId() {
+        return deepslateStateGlobalId;
+    }
+
     public boolean isDebugMode() {
         return debugMode;
+    }
+    
+    public boolean isViewBoxEnabled() {
+        return viewBoxEnabled;
+    }
+    
+    public int getViewBoxYThreshold() {
+        return viewBoxYThreshold;
+    }
+    
+    public int getViewBoxSize() {
+        return viewBoxSize;
+    }
+    
+    public boolean shouldHideEntities() {
+        return hideEntities;
+    }
+    
+    /**
+     * Checks if a block position should be hidden based on the 3x3 view box
+     * @param player The player
+     * @param blockX Block X coordinate
+     * @param blockY Block Y coordinate 
+     * @param blockZ Block Z coordinate
+     * @return true if the block should be hidden (replaced with deepslate)
+     */
+    public boolean shouldHideBlock(Player player, int blockX, int blockY, int blockZ) {
+        if (!viewBoxEnabled) {
+            return blockY <= 16; // Old behavior
+        }
+        
+        Location playerLoc = player.getLocation();
+        int playerBlockX = playerLoc.getBlockX();
+        int playerBlockZ = playerLoc.getBlockZ();
+        
+        // Only hide blocks at or below Y=16
+        if (blockY > 16) {
+            return false;
+        }
+        
+        // Calculate distance from player in X/Z plane
+        int deltaX = Math.abs(blockX - playerBlockX);
+        int deltaZ = Math.abs(blockZ - playerBlockZ);
+        
+        // If within view box range, don't hide
+        int halfViewBox = viewBoxSize / 2;
+        if (deltaX <= halfViewBox && deltaZ <= halfViewBox) {
+            return false;
+        }
+        
+        // Check if player is looking at this block position
+        Location lookTarget = getPlayerLookTarget(player);
+        if (lookTarget != null) {
+            int lookX = lookTarget.getBlockX();
+            int lookZ = lookTarget.getBlockZ();
+            
+            // If looking at area around this block, don't hide it
+            if (Math.abs(blockX - lookX) <= 1 && Math.abs(blockZ - lookZ) <= 1) {
+                return false;
+            }
+        }
+        
+        return true; // Hide the block
+    }
+    
+    /**
+     * Gets the target block the player is currently looking at
+     */
+    private Location getPlayerLookTarget(Player player) {
+        try {
+            Location eyeLoc = player.getEyeLocation();
+            org.bukkit.util.Vector direction = eyeLoc.getDirection();
+            
+            // Ray trace to find what the player is looking at
+            org.bukkit.util.RayTraceResult result = player.getWorld().rayTraceBlocks(eyeLoc, direction, 5.0);
+            if (result != null && result.getHitBlock() != null) {
+                return result.getHitBlock().getLocation();
+            }
+        } catch (Exception e) {
+            debugLog("Error in getPlayerLookTarget: " + e.getMessage());
+        }
+        return null;
     }
 }
 
@@ -816,6 +958,16 @@ class ChunkPacketListenerPE implements PacketListener {
         else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
             handleMultiBlockChangePacket(event, player);
         }
+        // Handle entity packets if entity hiding is enabled
+        else if (plugin.shouldHideEntities()) {
+            if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY ||
+                event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY ||
+                event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT ||
+                event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
+                event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
+                handleEntityPacket(event, player);
+            }
+        }
     }
 
     private void handleChunkDataPacket(PacketSendEvent event, Player player) {
@@ -824,9 +976,9 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Player: " + player.getName() + ", shouldHide: " + shouldHide + " (from playerHiddenState: " + plugin.playerHiddenState.get(player.getUniqueId()) + ")");
 
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) {
-                plugin.getLogger().warning("[YLevelHider][PacketListener] AIR block state is not available. Cannot modify chunk for " + player.getName());
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) {
+                plugin.getLogger().warning("[YLevelHider][PacketListener] DEEPSLATE block state is not available. Cannot modify chunk for " + player.getName());
                 return;
             }
             listenerDebugLog("Proceeding to modify CHUNK_DATA for " + player.getName());
@@ -882,12 +1034,19 @@ class ChunkPacketListenerPE implements PacketListener {
                         for (int relX = 0; relX < 16; relX++) {
                             for (int relZ = 0; relZ < 16; relZ++) {
                                 try {
-                                    WrappedBlockState currentState = section.get(relX, yInSection, relZ);
-                                    if (currentState != null && !currentState.equals(air)) {
-                                        listenerDebugLog("CHUNK_DATA: Changing block at [" + relX + "," + yInSection + "," + relZ + "] in section " + sectionIndex +
-                                                " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to AIR for player " + player.getName());
-                                        section.set(relX, yInSection, relZ, air);
-                                        modified = true;
+                                    // Calculate world block coordinates
+                                    int worldBlockX = (column.getX() * 16) + relX;
+                                    int worldBlockZ = (column.getZ() * 16) + relZ;
+                                    
+                                    // Check if this block should be hidden using the new 3x3 view box logic
+                                    if (plugin.shouldHideBlock(player, worldBlockX, currentWorldY, worldBlockZ)) {
+                                        WrappedBlockState currentState = section.get(relX, yInSection, relZ);
+                                        if (currentState != null && !currentState.equals(deepslate)) {
+                                            listenerDebugLog("CHUNK_DATA: Changing block at [" + relX + "," + yInSection + "," + relZ + "] in section " + sectionIndex +
+                                                    " (world Y " + currentWorldY + ") from " + currentState.getType().getName() + " to DEEPSLATE for player " + player.getName());
+                                            section.set(relX, yInSection, relZ, deepslate);
+                                            modified = true;
+                                        }
                                     }
                                 } catch (Exception e) {
                                     listenerDebugLog("Error setting block in CHUNK_DATA section " + sectionIndex + " at (" + relX + "," + yInSection + "," + relZ + "): " + e.getMessage());
@@ -919,18 +1078,21 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Intercepted BLOCK_CHANGE packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) return;
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) return;
 
             WrapperPlayServerBlockChange wrapper = new WrapperPlayServerBlockChange(event);
             Vector3i blockPos = wrapper.getBlockPosition();
 
             if (blockPos != null && blockPos.getY() <= 16) {
-                WrappedBlockState currentState = wrapper.getBlockState();
-                if (currentState != null && !currentState.equals(air)) {
-                    listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to AIR for " + player.getName());
-                    wrapper.setBlockState(air);
-                    event.markForReEncode(true);
+                // Check if this block should be hidden using the new 3x3 view box logic
+                if (plugin.shouldHideBlock(player, blockPos.getX(), blockPos.getY(), blockPos.getZ())) {
+                    WrappedBlockState currentState = wrapper.getBlockState();
+                    if (currentState != null && !currentState.equals(deepslate)) {
+                        listenerDebugLog("BLOCK_CHANGE: Changing block at " + blockPos.toString() + " from " + currentState.getType().getName() + " to DEEPSLATE for " + player.getName());
+                        wrapper.setBlockState(deepslate);
+                        event.markForReEncode(true);
+                    }
                 }
             }
         }
@@ -940,8 +1102,8 @@ class ChunkPacketListenerPE implements PacketListener {
         listenerDebugLog("Intercepted MULTI_BLOCK_CHANGE packet for " + player.getName());
         boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
         if (shouldHide) {
-            WrappedBlockState air = plugin.getAirState();
-            if (air == null) return;
+            WrappedBlockState deepslate = plugin.getDeepslateState();
+            if (deepslate == null) return;
 
             WrapperPlayServerMultiBlockChange wrapper = new WrapperPlayServerMultiBlockChange(event);
             boolean modifiedInPacket = false;
@@ -954,7 +1116,6 @@ class ChunkPacketListenerPE implements PacketListener {
 
             listenerDebugLog("MULTI_BLOCK_CHANGE: Processing " + records.length + " records.");
 
-
             for (WrapperPlayServerMultiBlockChange.EncodedBlock record : records) {
                 if (record == null) continue;
 
@@ -962,14 +1123,17 @@ class ChunkPacketListenerPE implements PacketListener {
                 int currentBlockId = record.getBlockId();
 
                 if (currentWorldY <= 16) {
-                    int airId = plugin.getAirStateGlobalId();
-                    if (currentBlockId != airId) {
-                        listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to AIR for " + player.getName());
-                        try {
-                            record.setBlockId(airId);
-                            modifiedInPacket = true;
-                        } catch (Exception e) {
-                            listenerDebugLog("MULTI_BLOCK_CHANGE: Failed to setBlockId on EncodedBlock record. Error: " + e.getMessage());
+                    // Check if this block should be hidden using the new 3x3 view box logic
+                    if (plugin.shouldHideBlock(player, record.getX(), currentWorldY, record.getZ())) {
+                        int deepslateId = plugin.getDeepslateStateGlobalId();
+                        if (currentBlockId != deepslateId) {
+                            listenerDebugLog("MULTI_BLOCK_CHANGE: Changing block at global ("+record.getX()+","+currentWorldY+","+record.getZ()+") from ID " + currentBlockId + " to DEEPSLATE for " + player.getName());
+                            try {
+                                record.setBlockId(deepslateId);
+                                modifiedInPacket = true;
+                            } catch (Exception e) {
+                                listenerDebugLog("MULTI_BLOCK_CHANGE: Failed to setBlockId on EncodedBlock record. Error: " + e.getMessage());
+                            }
                         }
                     }
                 }
@@ -979,6 +1143,48 @@ class ChunkPacketListenerPE implements PacketListener {
                 event.markForReEncode(true);
                 listenerDebugLog("MULTI_BLOCK_CHANGE for " + player.getName() + " was modified and marked for re-encode.");
             }
+        }
+    }
+
+    private void handleEntityPacket(PacketSendEvent event, Player player) {
+        boolean shouldHide = plugin.playerHiddenState.getOrDefault(player.getUniqueId(), false);
+        if (!shouldHide) return;
+
+        listenerDebugLog("Intercepted entity packet " + event.getPacketType().getName() + " for " + player.getName());
+
+        try {
+            Vector3d entityPosition = null;
+            
+            if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
+                WrapperPlayServerSpawnEntity wrapper = new WrapperPlayServerSpawnEntity(event);
+                entityPosition = wrapper.getPosition();
+            } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
+                WrapperPlayServerSpawnLivingEntity wrapper = new WrapperPlayServerSpawnLivingEntity(event);
+                entityPosition = wrapper.getPosition();
+            } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT) {
+                WrapperPlayServerEntityTeleport wrapper = new WrapperPlayServerEntityTeleport(event);
+                entityPosition = wrapper.getPosition();
+            } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE) {
+                // For relative move, we can't easily get absolute position, so we'll skip for now
+                return;
+            } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
+                // For relative move, we can't easily get absolute position, so we'll skip for now
+                return;
+            }
+            
+            if (entityPosition != null) {
+                int entityY = (int) Math.floor(entityPosition.getY());
+                int entityX = (int) Math.floor(entityPosition.getX());
+                int entityZ = (int) Math.floor(entityPosition.getZ());
+                
+                // Check if entity should be hidden based on the view box logic
+                if (plugin.shouldHideBlock(player, entityX, entityY, entityZ)) {
+                    listenerDebugLog("Hiding entity at position (" + entityX + "," + entityY + "," + entityZ + ") for " + player.getName());
+                    event.setCancelled(true);
+                }
+            }
+        } catch (Exception e) {
+            listenerDebugLog("Error handling entity packet: " + e.getMessage());
         }
     }
 
