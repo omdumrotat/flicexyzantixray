@@ -181,6 +181,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        
+        // Load PacketEvents
         packetEventsAPI.load();
         if (!packetEventsAPI.isLoaded()) {
             getLogger().severe("[YLevelHider] PacketEvents API failed to load correctly after packetEventsAPI.load().");
@@ -188,6 +190,10 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             return;
         }
         infoLog("PacketEvents API loaded successfully in onLoad.");
+        
+        // Initialize PacketEvents - this must be done in onLoad() to avoid Folia plugin lifecycle issues
+        packetEventsAPI.init();
+        infoLog("PacketEvents API initialized successfully in onLoad.");
     }
 
     @Override
@@ -196,12 +202,12 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         loadConfigValues();
 
         final PacketEventsAPI packetEventsAPI = PacketEvents.getAPI();
-        if (packetEventsAPI == null || !packetEventsAPI.isLoaded()) {
-            getLogger().severe("[YLevelHider] PacketEvents API not available or not loaded in onEnable. YLevelHider will not function.");
+        if (packetEventsAPI == null || !packetEventsAPI.isInitialized()) {
+            getLogger().severe("[YLevelHider] PacketEvents API not available or not initialized in onEnable. YLevelHider will not function.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        debugLog("PacketEvents API confirmed available and loaded in onEnable.");
+        debugLog("PacketEvents API confirmed available and initialized in onEnable.");
 
         try {
             airState = WrappedBlockState.getByString("minecraft:air");
@@ -246,14 +252,6 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
         this.getCommand("ylevelhiderworld").setExecutor(this);
         this.getCommand("ylevelhiderworld").setTabCompleter(this);
         debugLog("Commands registered.");
-
-        // Initialize PacketEvents directly - no need to schedule this during plugin enable
-        if (packetEventsAPI.isLoaded()) {
-            packetEventsAPI.init();
-            infoLog("PacketEvents.init() called during plugin enable.");
-        } else {
-            getLogger().warning("[YLevelHider] PacketEvents API was not loaded during plugin enable.");
-        }
 
 
         try {
