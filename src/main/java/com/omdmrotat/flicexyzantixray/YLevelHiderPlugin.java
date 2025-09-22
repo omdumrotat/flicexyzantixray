@@ -825,7 +825,8 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
                 // too many chunks at once. Otherwise, keep the full refresh behavior.
                 if (oldStateIsHidden && !newStateIsHidden) {
                     debugLog("Transition HIDING->VISIBLE for " + player.getName() + ", performing 3x3 refresh (radius=1).");
-                    performRefresh(player, 1);
+                    // performRefresh(player, 1); (not yet)
+                    this.refreshFullView(player);
                 } else {
                     this.refreshFullView(player);
                 }
