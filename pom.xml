@@ -71,6 +71,10 @@
             <id>codemc-snapshots</id>
             <url>https://repo.codemc.io/repository/maven-snapshots/</url>
         </repository>
+<repository>
+        <id>tcoded-releases</id>
+        <url>https://repo.tcoded.com/releases</url>
+    </repository>
     </repositories>
 
     <dependencies>
@@ -92,5 +96,20 @@
             <version>2.8.0</version>
             <scope>provided</scope>
         </dependency>
+<dependency>
+        <groupId>com.tcoded</groupId>
+        <artifactId>FoliaLib</artifactId>
+        <version>0.5.1</version>
+        <scope>compile</scope>
+    </dependency>
     </dependencies>
+ <configuration>
+                <relocations>
+                    <relocation>
+                        <pattern>com.tcoded.folialib</pattern>
+                        <!-- !! MAKE SURE TO CHANGE THIS TO YOUR PLUGIN'S GROUP & PLUGIN NAME !! -->
+                        <shadedPattern>com.omdmrotat.flicexyzantixray.lib.folialib</shadedPattern>
+                    </relocation>
+                </relocations>
+            </configuration>
 </project>
