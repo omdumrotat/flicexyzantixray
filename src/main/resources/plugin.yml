@@ -3,21 +3,12 @@ version: '2.5'
 main: com.omdmrotat.flicexyzantixray.YLevelHiderPlugin
 api-version: '1.20'
 load: STARTUP
+folia-supported: true
 depend: [packetevents]
 authors: [omdmrotat]
 description: Hides blocks above Y=16 based on player's Y level. Compatible with Paper and Folia.
-# Folia support added - compatible with regionized multithreading
-# Optional: Add loadbefore if another plugin might interact with PacketEvents early
-# loadbefore: []
-# Optional: Add softdepend if you want to use features from another plugin if it's present
-# softdepend: []
 
 commands:
-# You could add a command for debugging or manual refresh if needed
-# ylevelhider:
-#   description: Main command for YLevelHider.
-#   usage: /ylevelhider <args>
-#   permission: ylevelhider.admin
   ylevelhiderdebug:
     description: Toggles debug mode for YLevelHider plugin.
     usage: /ylevelhiderdebug
