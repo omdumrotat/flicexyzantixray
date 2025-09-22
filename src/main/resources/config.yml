@@ -35,3 +35,25 @@ refresh-cooldown-seconds: 3
 # missed events in Folia's async environment. Lower values provide better
 # responsiveness but use more server resources.
 state-validation-interval-seconds: 10
+
+# ==========================================================================================
+# Enhanced Anti-Xray Features
+# ==========================================================================================
+
+# Hide entities below Y=30 when players are above Y=31
+# This prevents ESP hacks from seeing entities like armor stands underground
+hide-entities-below-y30: true
+
+# Material to use for fake blocks (default: deepslate)
+# Valid materials: DEEPSLATE, STONE, COBBLESTONE, etc.
+# Note: Must be a valid Minecraft material name
+fake-block-material: "DEEPSLATE"
+
+# Detection range for looking at fake blocks (in blocks)
+# When players look at fake blocks within this range, chunks are uncovered
+# Higher values = more responsive but more resource intensive
+look-detection-range: 5
+
+# Interval in ticks for checking player look direction (20 ticks = 1 second)
+# Lower values = more responsive uncovering but higher CPU usage
+look-check-interval-ticks: 10
