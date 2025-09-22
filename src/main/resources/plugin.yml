@@ -6,7 +6,7 @@ load: STARTUP
 folia-supported: true
 depend: [packetevents]
 authors: [omdmrotat]
-description: Hides blocks above Y=16 based on player's Y level. Compatible with Paper and Folia.
+description: Advanced anti-xray plugin with 3x3 view box, dynamic uncovering, and entity hiding. Hides blocks below Y=16 when players are underground with configurable view box and look-based revealing.
 
 commands:
   ylevelhiderdebug:

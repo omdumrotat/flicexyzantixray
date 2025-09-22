@@ -19,6 +19,7 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBl
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange; // Import for MultiBlockChange
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnLivingEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnPlayer;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityTeleport;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMove;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMoveAndRotation;
@@ -522,8 +523,11 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         infoLog("onPlayerQuit CALLED for: " + player.getName());
-        refreshCooldowns.remove(player.getUniqueId());
-        playerHiddenState.remove(player.getUniqueId());
+        UUID playerUUID = player.getUniqueId();
+        refreshCooldowns.remove(playerUUID);
+        playerHiddenState.remove(playerUUID);
+        playerLookPositions.remove(playerUUID);
+        playerViewBoxCenters.remove(playerUUID);
     }
 
     @EventHandler
@@ -849,14 +853,14 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             return blockY <= 16; // Old behavior
         }
         
-        Location playerLoc = player.getLocation();
-        int playerBlockX = playerLoc.getBlockX();
-        int playerBlockZ = playerLoc.getBlockZ();
-        
         // Only hide blocks at or below Y=16
         if (blockY > 16) {
             return false;
         }
+        
+        Location playerLoc = player.getLocation();
+        int playerBlockX = playerLoc.getBlockX();
+        int playerBlockZ = playerLoc.getBlockZ();
         
         // Calculate distance from player in X/Z plane
         int deltaX = Math.abs(blockX - playerBlockX);
@@ -868,14 +872,15 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
             return false;
         }
         
-        // Check if player is looking at this block position
+        // Check if player is looking at this block position (with tolerance for chunks)
         Location lookTarget = getPlayerLookTarget(player);
         if (lookTarget != null) {
             int lookX = lookTarget.getBlockX();
             int lookZ = lookTarget.getBlockZ();
             
-            // If looking at area around this block, don't hide it
-            if (Math.abs(blockX - lookX) <= 1 && Math.abs(blockZ - lookZ) <= 1) {
+            // Expand the look area to reveal more blocks around look target
+            int lookRadius = Math.max(2, halfViewBox);
+            if (Math.abs(blockX - lookX) <= lookRadius && Math.abs(blockZ - lookZ) <= lookRadius) {
                 return false;
             }
         }
@@ -885,21 +890,27 @@ public class YLevelHiderPlugin extends JavaPlugin implements org.bukkit.event.Li
     
     /**
      * Gets the target block the player is currently looking at
+     * Uses caching to reduce performance impact
      */
     private Location getPlayerLookTarget(Player player) {
         try {
             Location eyeLoc = player.getEyeLocation();
             org.bukkit.util.Vector direction = eyeLoc.getDirection();
             
-            // Ray trace to find what the player is looking at
-            org.bukkit.util.RayTraceResult result = player.getWorld().rayTraceBlocks(eyeLoc, direction, 5.0);
+            // Ray trace to find what the player is looking at (extend range for underground)
+            double maxDistance = playerHiddenState.getOrDefault(player.getUniqueId(), false) ? 10.0 : 5.0;
+            org.bukkit.util.RayTraceResult result = player.getWorld().rayTraceBlocks(eyeLoc, direction, maxDistance);
             if (result != null && result.getHitBlock() != null) {
-                return result.getHitBlock().getLocation();
+                Location target = result.getHitBlock().getLocation();
+                playerLookPositions.put(player.getUniqueId(), target);
+                return target;
             }
         } catch (Exception e) {
             debugLog("Error in getPlayerLookTarget: " + e.getMessage());
         }
-        return null;
+        
+        // Return cached look position if ray trace failed
+        return playerLookPositions.get(player.getUniqueId());
     }
 }
 
@@ -962,6 +973,7 @@ class ChunkPacketListenerPE implements PacketListener {
         else if (plugin.shouldHideEntities()) {
             if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY ||
                 event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY ||
+                event.getPacketType() == PacketType.Play.Server.SPAWN_PLAYER ||
                 event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT ||
                 event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
                 event.getPacketType() == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
@@ -1160,6 +1172,9 @@ class ChunkPacketListenerPE implements PacketListener {
                 entityPosition = wrapper.getPosition();
             } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
                 WrapperPlayServerSpawnLivingEntity wrapper = new WrapperPlayServerSpawnLivingEntity(event);
+                entityPosition = wrapper.getPosition();
+            } else if (event.getPacketType() == PacketType.Play.Server.SPAWN_PLAYER) {
+                WrapperPlayServerSpawnPlayer wrapper = new WrapperPlayServerSpawnPlayer(event);
                 entityPosition = wrapper.getPosition();
             } else if (event.getPacketType() == PacketType.Play.Server.ENTITY_TELEPORT) {
                 WrapperPlayServerEntityTeleport wrapper = new WrapperPlayServerEntityTeleport(event);
